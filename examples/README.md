@@ -16,9 +16,9 @@ with Ctrl+C. State is shared across browser sessions and resets on restart.
 pnpm example:todo
 ```
 
-Open <http://127.0.0.1:3001> and add a todo. With htmx loaded, the form updates
-the todo section without navigating. Disable JavaScript and reload to try the
-same form with a full-page response.
+Open <http://127.0.0.1:3001> and add a todo. With htmx loaded from the CDN, the
+form updates the todo section without navigating. Disable JavaScript and reload
+to try the same form with a full-page response.
 
 `Form.derive` uses the endpoint's path as the form action and its payload schema
 to constrain control names. Labels and layout are written by hand.
@@ -69,20 +69,7 @@ page. Restart the server to reset the order.
 
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.
-There is only one hard-coded order; the handlers ignore the ID in the URL.
 
 `pnpm example` also starts the orders demo. `pnpm dev` watches its example
-files. After editing `src/`, restart the command to rebuild the library.
-
-## Limitations
-
-- No persistence, authentication, or application-level CSRF protection. Do not
-  expose these servers publicly.
-- htmx loads from a CDN and needs network access. Forms still submit if it
-  cannot load.
-- Invalid submissions return HTTP 400 without displaying validation errors.
-- Native POST submissions return HTML directly rather than redirecting, so
-  refreshing afterward can resubmit the form.
-
-See [the root README](../README.md#known-gaps) for renderer and form limitations,
-and [check commands](../README.md#checks) for type checking and tests.
+files. After editing `src/`, restart the command to rebuild the library. See the
+[root check commands](../README.md#checks) for type checking and tests.

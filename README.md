@@ -1,18 +1,24 @@
 # effect-views
 
-An experiment in server-rendered HTML and schema-bound forms with Effect and htmx.
+An unfinished prototype for server-rendered HTML and schema-bound forms with
+Effect and htmx.
 
-**Status: unfinished proof of concept, not intended for production use.**
+## What's interesting
 
-## The idea
+`effect-views` connects Effect's HTTP contracts directly to server-rendered UI:
 
-An endpoint already describes the data a form submits. This experiment reuses
-that contract to constrain field names and control types, while leaving markup
-and layout to the application.
+- A tiny JSX runtime renders straight to HTML—no React, virtual DOM, or
+  hydration step.
+- `HttpViewEndpoint` gives Effect endpoints an HTML success schema.
+- `HttpFormEndpoint` describes a URL-encoded POST with an Effect `Struct`
+  schema, then `Form.derive` turns that same endpoint into typed form controls.
+- Field names and compatible control types are checked by TypeScript while the
+  application keeps control of its markup and layout.
+- htmx helpers make it easy to return fragments, set response headers, and vary
+  responses on `HX-Request`.
 
-It pairs Effect's `HttpApiEndpoint` with server-side JSX and an HTML response
-schema. The examples return full pages for ordinary browser requests and HTML
-fragments for htmx requests. Forms work with or without JavaScript.
+The examples serve full pages to ordinary browser requests and HTML fragments
+to htmx requests. The same forms work with or without JavaScript.
 
 ## Try it locally
 
@@ -29,9 +35,8 @@ pnpm example:todo
 | [Todo list](examples/todo-list/) | `pnpm example:todo` | <http://127.0.0.1:3001> |
 | [Orders](examples/orders/) | `pnpm example:orders` | <http://127.0.0.1:3000/orders/42> |
 
-Both commands build the source and start a server. Stop it with Ctrl+C. These
-are local demos with shared, in-memory state and no authentication or
-application-level CSRF protection.
+Both commands build the source and start a server. Stop it with Ctrl+C. Demo
+state is held in memory and resets when the server restarts.
 
 The [example walkthroughs](examples/README.md) explain what to try, where to
 read the code, and how to make requests with curl.
@@ -63,19 +68,21 @@ export const view = (
 )
 ```
 
-`Root` emits `method="post"` and `action="/todos"`. The schema constrains the
-input's `name`, but labels, layout, and validation attributes such as `required`
-are written by hand. Form derivation does not generate the page or its error
-messages. `hx-push-url="false"` keeps htmx from putting the POST-only action URL
-into browser history, so refreshing still requests the page's GET route.
+`Root` gets `method="post"` and `action="/todos"` from the endpoint. `Label` and
+`Input` share a generated ID, and the schema makes `name="title"` a typed field
+reference. Layout, copy, classes, and browser validation attributes remain
+ordinary JSX. The endpoint's schema also decodes the submitted payload on the
+server.
 
-The `effect-views` imports resolve to this repository's code after building.
+`hx-push-url="false"` keeps the POST-only action out of browser history. The
+`effect-views` imports resolve to this repository's code after building.
 
 ## Where to read next
 
 - [`src/Html.ts`](src/Html.ts): HTML representation, text/attribute escaping, and
   the `text/html` response schema.
-- [`src/jsx-runtime.ts`](src/jsx-runtime.ts): synchronous JSX composition.
+- [`src/jsx-runtime.ts`](src/jsx-runtime.ts): the small, synchronous JSX runtime
+  that takes React's place.
 - [`src/HttpViewEndpoint.ts`](src/HttpViewEndpoint.ts): endpoint constructors with
   an HTML success schema.
 - [`src/HttpFormEndpoint.ts`](src/HttpFormEndpoint.ts): POST endpoints with
@@ -85,48 +92,12 @@ The `effect-views` imports resolve to this repository's code after building.
 - [`src/Htmx.ts`](src/Htmx.ts): request-header checks, response-header helpers, and
   `Vary: HX-Request` middleware.
 
-## Known gaps
-
-This code was built against Effect `4.0.0-beta.106` and its unstable HTTP APIs.
-Other Effect versions have not been tested.
-
-- Forms support flat structs, not nested fields. Select option values are not
-  checked against the schema at compile time.
-- `Form.derive` copies the endpoint path literally, without substituting path
-  parameters. Transformations such as `.prefix()` discard the metadata it needs.
-- An unchecked checkbox submits no value. Required boolean fields fail decoding
-  unless the application handles that absence.
-- Boolean ARIA/htmx attributes are not serialized correctly; use string values
-  such as `aria-expanded="false"` rather than boolean JSX values.
-- JSX attribute types are permissive: they do not check HTML structure or
-  accessibility.
-- The examples do not preserve invalid form values, render validation errors, or
-  redirect after successful POST requests.
-
-## Escaping and trust
-
-String children and attribute values are HTML-escaped; existing `Html` values
-are inserted as markup. The renderer rejects native `on*` event attributes,
-`srcdoc`, and `dangerouslySetInnerHTML`. It also blocks `javascript:`,
-`vbscript:`, and `data:` schemes in the URL attributes it recognizes. These
-checks do not make it a sanitizer.
-
-HTML escaping does not protect JavaScript or CSS contexts. The renderer also
-allows htmx expressions such as `hx-on:*`. Keep templates under application
-control, and do not interpolate untrusted values into executable contexts.
-
-The `Html` brand does not certify its contents. Both `Html.unsafe` and decoding
-a string through `Html.schema` accept raw markup without sanitization.
-
 ## Checks
 
 ```sh
 pnpm check  # Type-check source, examples, and compile-time test assertions
 pnpm test   # Run renderer, form, and HTTP tests
 ```
-
-The tests cover selected rendering and HTTP behavior. They do not exercise
-browser interactions or constitute a security audit.
 
 ## License
 
