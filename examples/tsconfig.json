@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "../dist-examples",
+    "tsBuildInfoFile": "../.tsbuildinfo/examples.tsbuildinfo",
+    "jsx": "react-jsx",
+    "jsxImportSource": "effect-views"
+  },
+  "references": [{ "path": "../src" }],
+  "include": ["**/*.ts", "**/*.tsx"]
+}

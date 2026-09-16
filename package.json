@@ -1,0 +1,74 @@
+{
+  "name": "effect-views",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An unfinished experiment in server-rendered HTML and schema-bound forms with Effect v4",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.15.0",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./Form": {
+      "types": "./dist/Form.d.ts",
+      "default": "./dist/Form.js"
+    },
+    "./Html": {
+      "types": "./dist/Html.d.ts",
+      "default": "./dist/Html.js"
+    },
+    "./HttpFormEndpoint": {
+      "types": "./dist/HttpFormEndpoint.d.ts",
+      "default": "./dist/HttpFormEndpoint.js"
+    },
+    "./HttpViewEndpoint": {
+      "types": "./dist/HttpViewEndpoint.d.ts",
+      "default": "./dist/HttpViewEndpoint.js"
+    },
+    "./Htmx": {
+      "types": "./dist/Htmx.d.ts",
+      "default": "./dist/Htmx.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "default": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "default": "./dist/jsx-dev-runtime.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b src examples",
+    "build:lib": "tsc -b src",
+    "check": "tsc -b",
+    "clean": "tsc -b --clean && rm -rf .tsbuildinfo dist dist-examples dist-test",
+    "dev": "pnpm build && tsx --watch examples/orders/main.tsx",
+    "example": "pnpm example:orders",
+    "example:orders": "pnpm build && node dist-examples/orders/main.js",
+    "example:todo": "pnpm build && node dist-examples/todo-list/main.js",
+    "test": "pnpm build:lib && vitest run"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-beta.106"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.0.0-beta.106",
+    "@effect/vitest": "4.0.0-beta.106",
+    "@types/node": "26.1.2",
+    "effect": "4.0.0-beta.106",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

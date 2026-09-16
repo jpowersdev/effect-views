@@ -1,0 +1,9 @@
+.direnv/
+node_modules/
+.tsbuildinfo/
+dist/
+dist-examples/
+dist-test/
+.result/
+result
+.envrc.local
