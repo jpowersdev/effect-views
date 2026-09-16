@@ -21,7 +21,9 @@ export const routes = Layer.mergeAll(
   Layer.provide(Todos.layer)
 )
 
+const port = Number(process.env["PORT"] ?? 3000)
+
 export const layer = routes.pipe(
   HttpRouter.serve,
-  Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 3001 }))
+  Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port }))
 )

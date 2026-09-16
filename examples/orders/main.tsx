@@ -9,9 +9,11 @@ import { createServer } from "node:http"
 import * as Htmx from "effect-views/Htmx"
 import * as App from "./App.js"
 
+const port = Number(process.env["PORT"] ?? 3000)
+
 const main = Layer.mergeAll(App.routes, Htmx.varyLayer).pipe(
   HttpRouter.serve,
-  Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 3000 }))
+  Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port }))
 )
 
 Layer.launch(main).pipe(NodeRuntime.runMain)

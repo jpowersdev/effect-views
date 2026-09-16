@@ -40,6 +40,8 @@ const OrderParams = {
   orderId: Schema.Int
 }
 
+const listOrders = HttpViewEndpoint.get("list", "/")
+
 const showOrder = HttpViewEndpoint.get("show", "/orders/:orderId", {
   params: OrderParams
 })
@@ -50,8 +52,22 @@ const cancelOrder = HttpViewEndpoint.post("cancel", "/orders/:orderId/cancel", {
 
 export const api = HttpApi.make("Example").add(
   HttpApiGroup.make("orders")
+    .add(listOrders)
     .add(showOrder)
     .add(cancelOrder)
+)
+
+const OrdersIndex = ({ order }: { readonly order: Order }): Html.Html => (
+  <section id="orders">
+    <h1>Orders</h1>
+    <p>This example serves complete pages and swaps focused fragments with htmx.</p>
+    <ul>
+      <li>
+        <a href={`/orders/${order.id}`}>Order #{order.id}</a>
+        {" — "}<strong>{order.status}</strong>
+      </li>
+    </ul>
+  </section>
 )
 
 const OrderView = ({ order }: { readonly order: Order }): Html.Html => (
@@ -77,10 +93,11 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>Effect Views</title>
+      <title>Orders</title>
       <script src="https://unpkg.com/htmx.org@2.0.8"></script>
     </head>
     <body>
+      <header><a href="/">Orders</a></header>
       <main>{children}</main>
     </body>
   </html>
@@ -88,11 +105,8 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
 
 const representation = (
   request: Parameters<typeof Htmx.isRequest>[0],
-  order: Order
-): Html.Html => {
-  const view = <OrderView order={order} />
-  return Htmx.isRequest(request) ? view : <Page>{view}</Page>
-}
+  view: Html.Html
+): Html.Html => Htmx.isRequest(request) ? view : <Page>{view}</Page>
 
 const OrdersHandlers = HttpApiBuilder.group(
   api,
@@ -100,10 +114,12 @@ const OrdersHandlers = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const orders = yield* Orders
     return handlers
+      .handle("list", ({ request }) =>
+        Effect.map(orders.get, (order) => representation(request, <OrdersIndex order={order} />)))
       .handle("show", ({ request }) =>
-        Effect.map(orders.get, (order) => representation(request, order)))
+        Effect.map(orders.get, (order) => representation(request, <OrderView order={order} />)))
       .handle("cancel", ({ request }) =>
-        Effect.map(orders.cancel, (order) => representation(request, order)))
+        Effect.map(orders.cancel, (order) => representation(request, <OrderView order={order} />)))
   })
 ).pipe(Layer.provide(OrdersLive))
 

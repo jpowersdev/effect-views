@@ -7,8 +7,9 @@ pnpm 11.15.0, and run commands from the repository root.
 pnpm install --frozen-lockfile
 ```
 
-Each run command builds the source and starts a server on `127.0.0.1`. Stop it
-with Ctrl+C. State is shared across browser sessions and resets on restart.
+Each run command builds the source and starts its example at
+`http://127.0.0.1:3000`. Stop it with Ctrl+C. Set `PORT` to use another port.
+State is shared across browser sessions and resets on restart.
 
 ## Todo list: schema-bound forms
 
@@ -16,7 +17,7 @@ with Ctrl+C. State is shared across browser sessions and resets on restart.
 pnpm example:todo
 ```
 
-Open <http://127.0.0.1:3001> and add a todo. With htmx loaded from the CDN, the
+Open <http://127.0.0.1:3000> and add a todo. With htmx loaded from the CDN, the
 form updates the todo section without navigating. Disable JavaScript and reload
 to try the same form with a full-page response.
 
@@ -40,18 +41,18 @@ With the server running, open a second terminal:
 
 ```sh
 # Full HTML document
-curl -i http://127.0.0.1:3001/
+curl -i http://127.0.0.1:3000/
 
 # The same route, returning only the app fragment
-curl -i -H 'HX-Request: true' http://127.0.0.1:3001/
+curl -i -H 'HX-Request: true' http://127.0.0.1:3000/
 
 # Submit the URL-encoded form and receive an updated fragment
 curl -i -H 'HX-Request: true' \
   --data-urlencode 'title=Explore typed forms' \
-  http://127.0.0.1:3001/todos
+  http://127.0.0.1:3000/todos
 
 # Read the same state through the JSON API
-curl -i http://127.0.0.1:3001/api/todos
+curl -i http://127.0.0.1:3000/api/todos
 ```
 
 Successful HTML responses include `Vary: HX-Request` so caches can distinguish
@@ -63,9 +64,10 @@ pages from fragments.
 pnpm example:orders
 ```
 
-Open <http://127.0.0.1:3000/orders/42> and click **Cancel order**. With htmx,
-only the order article changes; without JavaScript, the browser loads a new
-page. Restart the server to reset the order.
+Open <http://127.0.0.1:3000>, choose order 42, and click **Cancel order**. With
+htmx, only the order article changes; without JavaScript, the browser loads a
+new page. Return to the index to see the updated status. Restart the server to
+reset the order.
 
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.

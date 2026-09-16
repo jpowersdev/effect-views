@@ -27,16 +27,17 @@ Use Node.js 22+ and pnpm 11.15.0. From the repository root:
 ```sh
 pnpm install --frozen-lockfile
 pnpm example:todo
-# open http://127.0.0.1:3001
+# open http://127.0.0.1:3000
 ```
 
 | Example | Command | Open |
 | --- | --- | --- |
-| [Todo list](examples/todo-list/) | `pnpm example:todo` | <http://127.0.0.1:3001> |
-| [Orders](examples/orders/) | `pnpm example:orders` | <http://127.0.0.1:3000/orders/42> |
+| [Todo list](examples/todo-list/) | `pnpm example:todo` | <http://127.0.0.1:3000> |
+| [Orders](examples/orders/) | `pnpm example:orders` | <http://127.0.0.1:3000> |
 
-Both commands build the source and start a server. Stop it with Ctrl+C. Demo
-state is held in memory and resets when the server restarts.
+Each command builds the source and starts its example on port 3000. Stop it with
+Ctrl+C. Set `PORT` to use another port. Demo state is held in memory and resets
+when the server restarts.
 
 The [example walkthroughs](examples/README.md) explain what to try, where to
 read the code, and how to make requests with curl.

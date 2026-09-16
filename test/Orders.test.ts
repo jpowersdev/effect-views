@@ -23,6 +23,13 @@ Vitest.describe("orders example", () => {
     const { dispose, handler } = HttpRouter.toWebHandler(app, { disableLogger: true })
 
     try {
+      const index = await handler(new Request("http://localhost/"))
+      const indexBody = await index.text()
+      Vitest.expect(index.status).toBe(200)
+      Vitest.expect(indexBody).toContain("<!doctype html>")
+      Vitest.expect(indexBody).toContain('href="/orders/42"')
+      Vitest.expect(indexBody).toContain("Active")
+
       const page = await handler(new Request("http://localhost/orders/42"))
       Vitest.expect(page.status).toBe(200)
       Vitest.expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
@@ -43,6 +50,9 @@ Vitest.describe("orders example", () => {
       const cancelledBody = await cancelled.text()
       Vitest.expect(cancelledBody).toContain("Cancelled")
       Vitest.expect(cancelledBody).not.toContain("Cancel order")
+
+      const updatedIndex = await handler(new Request("http://localhost/"))
+      Vitest.expect(await updatedIndex.text()).toContain("Cancelled")
     } finally {
       await dispose()
     }
