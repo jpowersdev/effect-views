@@ -75,23 +75,86 @@ reference. Layout, copy, classes, and browser validation attributes remain
 ordinary JSX. The endpoint's schema also decodes the submitted payload on the
 server.
 
-`hx-push-url="false"` keeps the POST-only action out of browser history. The
-`effect-views` imports resolve to this repository's code after building.
+`hx-push-url="false"` keeps the POST-only action out of browser history.
 
-## Where to read next
+## JSX without React
 
-- [`src/Html.ts`](src/Html.ts): HTML representation, text/attribute escaping, and
-  the `text/html` response schema.
-- [`src/jsx-runtime.ts`](src/jsx-runtime.ts): the small, synchronous JSX runtime
-  that takes React's place.
-- [`src/HttpViewEndpoint.ts`](src/HttpViewEndpoint.ts): endpoint constructors with
-  an HTML success schema.
-- [`src/HttpFormEndpoint.ts`](src/HttpFormEndpoint.ts): POST endpoints with
-  URL-encoded struct payloads.
-- [`src/Form.ts`](src/Form.ts): explicit (`make`) or endpoint-derived (`derive`)
-  controls, including inputs, textareas, checkboxes, selects, and labels.
-- [`src/Htmx.ts`](src/Htmx.ts): request-header checks, response-header helpers, and
-  `Vary: HX-Request` middleware.
+Components are ordinary synchronous functions returning `Html`:
+
+```tsx
+const TodoList = ({ todos }: { readonly todos: ReadonlyArray<Todo.Todo> }): Html.Html => (
+  <ul>
+    {todos.map((todo) => <li key={todo.id}>{todo.title}</li>)}
+  </ul>
+)
+
+const TodoApp = ({ todos }: { readonly todos: ReadonlyArray<Todo.Todo> }): Html.Html => (
+  <main id="todo-app">
+    <h1>Todo list</h1>
+    <TodoList todos={todos} />
+    <NewTodo.Root
+      hx-boost="true"
+      hx-push-url="false"
+      hx-target="#todo-app"
+      hx-swap="outerHTML"
+    >
+      <NewTodo.Label name="title">What needs doing?</NewTodo.Label>
+      <NewTodo.Input name="title" required />
+      <button type="submit">Add todo</button>
+    </NewTodo.Root>
+  </main>
+)
+```
+
+TypeScript sends that JSX to the project's runtime instead of React's. The core
+of the runtime is just this:
+
+```ts
+export const jsx = (
+  type: ElementType,
+  props: Html.Attributes | null,
+  _key?: string | number
+): Html.Html => {
+  if (typeof type === "function") return type(props ?? {})
+  return Html.element(type, props)
+}
+```
+
+Function components are called directly; intrinsic elements go through the HTML
+renderer and become a branded `Html` value ready for an Effect response.
+
+## Full pages and htmx fragments
+
+The same handlers choose a complete document or a focused fragment from the
+`HX-Request` header:
+
+```ts
+const representation = (
+  request: Parameters<typeof Htmx.isRequest>[0],
+  todos: ReadonlyArray<Todo.Todo>
+) => Htmx.isRequest(request) ? Html.app(todos) : Html.page(todos)
+
+export const viewsLayer = HttpApiBuilder.group(
+  RootApi.Api,
+  "todosViews",
+  Effect.fnUntraced(function* (handlers) {
+    const todos = yield* Todos.Todos
+
+    return handlers
+      .handle("list", ({ request }) =>
+        Effect.map(todos.list, (items) => representation(request, items)))
+      .handle("create", ({ payload, request }) =>
+        Effect.gen(function* () {
+          yield* todos.add(payload.title)
+          return representation(request, yield* todos.list)
+        }))
+  })
+)
+```
+
+`Htmx.varyLayer` adds `Vary: HX-Request` to HTML responses, and helpers such as
+`Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and `Htmx.trigger` set htmx
+response headers.
 
 ## Checks
 
