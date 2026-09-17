@@ -6,10 +6,10 @@ allowBuilds:
   msgpackr-extract: true
 
 minimumReleaseAgeExclude:
-  - '@effect/platform-node-shared@4.0.0-beta.106'
-  - '@effect/platform-node@4.0.0-beta.106'
-  - '@effect/vitest@4.0.0-beta.106'
-  - effect@4.0.0-beta.106
+  - '@effect/platform-node-shared@4.0.0-rc.115'
+  - '@effect/platform-node@4.0.0-rc.115'
+  - '@effect/vitest@4.0.0-rc.115'
+  - effect@4.0.0-rc.115
 
 onlyBuiltDependencies:
   - esbuild

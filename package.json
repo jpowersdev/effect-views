@@ -60,15 +60,15 @@
     "test": "pnpm build:lib && vitest run"
   },
   "peerDependencies": {
-    "effect": "^4.0.0-beta.106"
+    "effect": "^4.0.0-rc.115"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-beta.106",
-    "@effect/vitest": "4.0.0-beta.106",
+    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/vitest": "4.0.0-rc.115",
     "@types/node": "26.1.2",
-    "effect": "4.0.0-beta.106",
+    "effect": "4.0.0-rc.115",
     "tsx": "4.23.11",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   }
 }
