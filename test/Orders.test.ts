@@ -42,6 +42,14 @@ Vitest.describe("orders example", () => {
       const fragmentBody = await fragment.text()
       Vitest.expect(fragmentBody).toMatch(/^<article/)
       Vitest.expect(fragmentBody).not.toContain("<!doctype html>")
+      Vitest.expect(fragmentBody).toContain('hx-get="/orders/42/activity"')
+
+      const activity = await handler(new Request("http://localhost/orders/42/activity", {
+        headers: { "HX-Request": "true" }
+      }))
+      const activityBody = await activity.text()
+      Vitest.expect(activityBody).toMatch(/^<section>/)
+      Vitest.expect(activityBody).toContain("<li>Order placed</li>")
 
       const cancelled = await handler(new Request("http://localhost/orders/42/cancel", {
         method: "POST",
@@ -50,6 +58,11 @@ Vitest.describe("orders example", () => {
       const cancelledBody = await cancelled.text()
       Vitest.expect(cancelledBody).toContain("Cancelled")
       Vitest.expect(cancelledBody).not.toContain("Cancel order")
+
+      const updatedActivity = await handler(new Request("http://localhost/orders/42/activity"))
+      const updatedActivityBody = await updatedActivity.text()
+      Vitest.expect(updatedActivityBody).toContain("<!doctype html>")
+      Vitest.expect(updatedActivityBody).toContain("<li>Order cancelled</li>")
 
       const updatedIndex = await handler(new Request("http://localhost/"))
       Vitest.expect(await updatedIndex.text()).toContain("Cancelled")

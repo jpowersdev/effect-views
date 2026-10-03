@@ -1,3 +1,4 @@
+export * as Deferred from "./Deferred.js"
 export * as Form from "./Form.js"
 export * as Html from "./Html.js"
 export * as Htmx from "./Htmx.js"

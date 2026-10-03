@@ -66,7 +66,8 @@ pnpm example:orders
 
 Open <http://127.0.0.1:3000>, choose order 42, and click **Cancel order**. With
 htmx, only the order article changes; without JavaScript, the browser loads a
-new page. Return to the index to see the updated status. Restart the server to
+new page. The activity panel loads separately, about 400 ms after the
+page, through `Deferred.derive`; without JavaScript it becomes a link. Return to the index to see the updated status. Restart the server to
 reset the order.
 
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,

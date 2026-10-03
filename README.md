@@ -156,6 +156,46 @@ export const viewsLayer = HttpApiBuilder.group(
 `Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and `Htmx.trigger` set htmx
 response headers.
 
+## Async views
+
+Components stay synchronous. TypeScript gives every JSX expression the same
+type, so a component's services and errors would disappear inside a tree.
+Load data in Effect instead, and render once it has arrived:
+
+```tsx
+const ActivityPanel = Effect.gen(function* () {
+  const orders = yield* Orders
+  const events = yield* orders.activity
+  return <section><ol>{events.map((event) => <li>{event}</li>)}</ol></section>
+})
+// Effect<Html, never, Orders>
+```
+
+Compose these with `Effect.all` (optionally concurrent), recover with
+`Effect.catchTag`, and the requirements and errors stay in the types.
+
+When part of a page is slow, `Deferred.derive` puts it behind its own GET view
+endpoint and renders a placeholder that htmx replaces once the page has loaded:
+
+```tsx
+const orderActivity = HttpViewEndpoint.get("activity", "/orders/:orderId/activity", {
+  params: { orderId: Schema.Int }
+})
+
+const Activity = Deferred.derive({ endpoint: orderActivity })
+
+<Activity.Root params={{ orderId: order.id }}>
+  <p>Loading activity…</p>
+</Activity.Root>
+// <div hx-get="/orders/42/activity" hx-trigger="load" hx-swap="outerHTML">…</div>
+```
+
+Params and query are typed by the endpoint and encoded with its schemas.
+`trigger` accepts any htmx trigger, such as `"revealed"` or `"every 30s"`, and
+`Activity.url(...)` builds the same URL for links. Deferred content needs
+JavaScript, so keep essential content in the page or link to the fragment's
+endpoint from a `<noscript>`.
+
 ## Checks
 
 ```sh
