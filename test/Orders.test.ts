@@ -1,7 +1,7 @@
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import * as Etag from "effect/unstable/http/Etag"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as Etag from "effect/http/Etag"
+import * as HttpRouter from "effect/http/HttpRouter"
 import * as Layer from "effect/Layer"
 import * as Vitest from "vitest"
 

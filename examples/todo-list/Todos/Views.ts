@@ -1,4 +1,4 @@
-import * as HttpApiGroup from "effect/unstable/httpapi/HttpApiGroup"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
 import * as HttpFormEndpoint from "effect-views/HttpFormEndpoint"
 import * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"

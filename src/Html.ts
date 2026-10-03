@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
-import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema"
+import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 
 /** Brand used to distinguish Html values from ordinary strings. */
 export const TypeId: unique symbol = Symbol.for("effect-views/Html") as any

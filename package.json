@@ -60,13 +60,13 @@
     "test": "pnpm build:lib && vitest run"
   },
   "peerDependencies": {
-    "effect": "^4.0.0-rc.115"
+    "effect": "^4.0.0"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/vitest": "4.0.0-rc.115",
+    "@effect/platform-node": "4.0.0",
+    "@effect/vitest": "4.0.0",
     "@types/node": "26.1.2",
-    "effect": "4.0.0-rc.115",
+    "effect": "4.0.0",
     "tsx": "4.23.11",
     "typescript": "7.0.2",
     "vitest": "5.0.1"

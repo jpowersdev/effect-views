@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
 import * as Htmx from "effect-views/Htmx"
 

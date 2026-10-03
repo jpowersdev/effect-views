@@ -1,7 +1,7 @@
 import type * as Schema from "effect/Schema"
-import type * as HttpRouter from "effect/unstable/http/HttpRouter"
-import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint"
-import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema"
+import type * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
+import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 
 import * as Html from "./Html.js"
 

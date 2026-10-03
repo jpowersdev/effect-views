@@ -1,7 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import * as Layer from "effect/Layer"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import { createServer } from "node:http"
 
 import * as Htmx from "effect-views/Htmx"

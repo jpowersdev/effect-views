@@ -1,4 +1,4 @@
-import * as HttpApi from "effect/unstable/httpapi/HttpApi"
+import * as HttpApi from "effect/http-api/HttpApi"
 
 import * as DataApi from "./DataApi.js"
 import * as Views from "./Views.js"
