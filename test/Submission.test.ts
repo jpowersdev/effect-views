@@ -28,8 +28,7 @@ Vitest.describe("Submission", () => {
     Vitest.expect(error.values).toBe(values)
     Vitest.expect(error.errors).toEqual({
       name: ["Required"],
-      age: ["Expected a string representing a finite number"],
-      subscribe: ["Required"]
+      age: ["Expected a string representing a finite number"]
     })
     Vitest.expect(error.formErrors).toEqual([])
   })
@@ -42,6 +41,22 @@ Vitest.describe("Submission", () => {
     })
     Vitest.expect(Submission.decode(Profile, { name: "Ada", age: "", tags: ["", ""] }))
       .toEqual(Exit.succeed({ name: "Ada" }))
+  })
+
+  Vitest.it("reads unchecked checkboxes as false", async () => {
+    const Preferences = Schema.Struct({
+      newsletter: Schema.Boolean,
+      digest: Schema.optionalKey(Schema.Boolean),
+      terms: Schema.Literal(true).annotateKey({ messageMissingKey: "Accept the terms to continue" })
+    })
+
+    Vitest.expect(Submission.decode(Preferences, { terms: "true" }))
+      .toEqual(Exit.succeed({ newsletter: false, terms: true }))
+    Vitest.expect(Submission.decode(Preferences, { newsletter: "true", digest: "true", terms: "true" }))
+      .toEqual(Exit.succeed({ newsletter: true, digest: true, terms: true }))
+
+    const error = await invalid(Submission.decode(Preferences, {}))
+    Vitest.expect(error.errors).toEqual({ terms: ["Accept the terms to continue"] })
   })
 
   Vitest.it("uses messages written in the schema", async () => {

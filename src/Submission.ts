@@ -80,12 +80,29 @@ const withoutEmpty = (values: Values): Values => {
   return present
 }
 
+/** An unchecked checkbox is not submitted at all; a required boolean field reads it as false. */
+const withUncheckedBooleans = <Fields extends Schema.Struct.Fields>(
+  schema: Schema.Struct<Fields>,
+  values: Values
+): Values => {
+  const filled: Record<string, string | ReadonlyArray<string>> = { ...values }
+  for (const [name, field] of Object.entries(schema.fields) as Array<[string, Schema.Constraint]>) {
+    if (!Object.hasOwn(filled, name) && field.ast._tag === "Boolean" && field.ast.context?.isOptional !== true) {
+      filled[name] = "false"
+    }
+  }
+  return filled
+}
+
 /**
  * Decodes URL-encoded values with a Struct schema, as an HTTP form body is
  * decoded, reporting every field's issues.
  *
  * - Empty inputs count as missing: required fields report "Required", or their
  *   `messageMissingKey` annotation, and optional fields are left out.
+ * - A missing required `Schema.Boolean` is false, as for an unchecked checkbox.
+ *   Optional booleans stay missing, and `Schema.Literal(true)` still requires a
+ *   checked box.
  * - A field's `message` annotation, such as `Schema.Int.annotate({ message })`,
  *   also replaces the message for text that cannot be converted, such as "abc"
  *   for a number.
@@ -96,7 +113,7 @@ export const decode = <Fields extends Schema.Struct.Fields>(
   schema: Schema.Struct<Fields>,
   values: Values
 ): Submission<Schema.Struct<Fields>["Type"]> => {
-  const present = withoutEmpty(values)
+  const present = withUncheckedBooleans(schema, withoutEmpty(values))
   const result = Schema.decodeUnknownResult(stringTreeCodec(schema))(present, { errors: "all" })
   if (Result.isSuccess(result)) return Exit.succeed(result.success)
 

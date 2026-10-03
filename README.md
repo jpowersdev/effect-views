@@ -174,6 +174,10 @@ const ChangePassword = Schema.Struct({
 ))
 ```
 
+An unchecked checkbox is not submitted, so a missing `Schema.Boolean` field is
+`false`. Use `Schema.Literal(true)` for a box that must be checked, such as
+accepting terms.
+
 Fields without messages fall back to Effect's defaults, such as "Expected a
 value with a length of at least 1", and "Required" for empty fields.
 
