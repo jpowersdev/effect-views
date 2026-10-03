@@ -81,9 +81,18 @@ export type SelectProps<Name extends string> = NativeAttributes<"id" | "name" | 
   readonly value?: string
 }
 
-export type ErrorProps<Name extends string> = NativeAttributes<"id" | "name"> & {
+export type ErrorProps<Name extends string> = Omit<Html.Attributes, "children" | "id" | "name"> & {
   /** The field whose messages to show; without it, the form's own messages. */
   readonly name?: Name
+  /** The element holding the messages, which carries the id. Defaults to "p". */
+  readonly as?: string
+  /** Renders the messages inside the element. Defaults to joining them with spaces. */
+  readonly children?: (messages: ReadonlyArray<string>) => Html.Child
+}
+
+export type SummaryProps = Omit<Html.Attributes, "children" | "id"> & {
+  /** Shown above the list, in an h2. Defaults to "There is a problem"; null for none. */
+  readonly heading?: Html.Child
 }
 
 export interface Config<Fields extends Schema.Struct.Fields, Action extends string> {
@@ -122,6 +131,18 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
    * aria-describedby.
    */
   readonly Error: <Name extends FieldName<Fields>>(props: ErrorProps<Name>) => Html.Html
+  /**
+   * Every message, the form's own first and then each field's, linking to its
+   * control. Renders nothing for a valid form. It has role="alert" and autofocus,
+   * so the browser moves focus to it on a full page load and htmx after a swap.
+   */
+  readonly Summary: (props: SummaryProps) => Html.Html
+  /** A field's messages, or the form's own messages without a name. */
+  readonly messages: <Name extends FieldName<Fields>>(name?: Name) => ReadonlyArray<string>
+  /** Whether a field has messages, or the form has its own without a name. */
+  readonly hasErrors: <Name extends FieldName<Fields>>(name?: Name) => boolean
+  /** Whether there are any messages at all, for the form or any field. */
+  readonly invalid: boolean
   /**
    * The same form, filled with an invalid submission's values and errors.
    * Password inputs are left empty.
@@ -260,14 +281,54 @@ export const make = <
       })
     }
 
+    const messages = <Name extends FieldName<Fields>>(name?: Name): ReadonlyArray<string> =>
+      name === undefined ? state?.formErrors ?? [] : errorsOf(name)
+
+    const hasErrors = <Name extends FieldName<Fields>>(name?: Name): boolean => messages(name).length > 0
+
+    // Fields in schema order, then any others a handler reported
+    const fieldsWithErrors = (): ReadonlyArray<string> => {
+      const names = Object.keys(state?.errors ?? {}).filter((name) => errorsOf(name).length > 0)
+      const order = Object.keys(schema.fields)
+      return [...order.filter((name) => names.includes(name)), ...names.filter((name) => !order.includes(name))]
+    }
+
+    const invalid = hasErrors() || fieldsWithErrors().length > 0
+
     const Error = <Name extends FieldName<Fields>>(props: ErrorProps<Name>): Html.Html => {
-      const { name, ...attributes } = props
-      const messages = name === undefined ? state?.formErrors ?? [] : errorsOf(name)
-      if (messages.length === 0) return Html.fragment()
-      return Html.element("p", {
+      const { as = "p", children, name, ...attributes } = props
+      const list = messages(name)
+      if (list.length === 0) return Html.fragment()
+      return Html.element(as, {
         ...attributes,
         id: name === undefined ? formErrorId : errorIdFor(name),
-        children: messages.join(" ")
+        children: children === undefined ? list.join(" ") : children(list)
+      })
+    }
+
+    const Summary = (props: SummaryProps): Html.Html => {
+      if (!invalid) return Html.fragment()
+      const { heading = "There is a problem", ...attributes } = props
+      const items = [
+        ...messages().map((message) => Html.element("li", { children: message })),
+        ...fieldsWithErrors().flatMap((name) =>
+          errorsOf(name).map((message) =>
+            Html.element("li", {
+              children: Html.element("a", { href: `#${fieldId(id, name)}`, children: message })
+            })
+          )
+        )
+      ]
+      return Html.element("div", {
+        role: "alert",
+        tabindex: "-1",
+        autofocus: true,
+        ...attributes,
+        id: `${id}-summary`,
+        children: [
+          heading === null || heading === undefined ? null : Html.element("h2", { children: heading }),
+          Html.element("ul", { children: items })
+        ]
       })
     }
 
@@ -284,6 +345,10 @@ export const make = <
       Checkbox,
       Select,
       Error,
+      Summary,
+      messages,
+      hasErrors,
+      invalid,
       with: build
     })
   }

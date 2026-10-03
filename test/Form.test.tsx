@@ -155,6 +155,69 @@ Vitest.describe("Form", () => {
     )
   })
 
+  Vitest.it("exposes messages for markup the application writes itself", () => {
+    const Filled = TodoForm.with(new Submission.Invalid({
+      values: {},
+      errors: { title: ["Required"], count: [] },
+      formErrors: ["Try again"]
+    }))
+
+    Vitest.expect(Filled.messages("title")).toEqual(["Required"])
+    Vitest.expect(Filled.messages()).toEqual(["Try again"])
+    Vitest.expect(Filled.hasErrors("title")).toBe(true)
+    Vitest.expect(Filled.hasErrors("count")).toBe(false)
+    Vitest.expect(Filled.hasErrors()).toBe(true)
+    Vitest.expect(Filled.invalid).toBe(true)
+
+    Vitest.expect(TodoForm.messages("title")).toEqual([])
+    Vitest.expect(TodoForm.invalid).toBe(false)
+    const fieldOnly = TodoForm.with(new Submission.Invalid({ values: {}, errors: { title: ["Required"] } }))
+    Vitest.expect(fieldOnly.hasErrors()).toBe(false)
+    Vitest.expect(fieldOnly.invalid).toBe(true)
+  })
+
+  Vitest.it("renders messages with the application's markup, keeping the id", () => {
+    const Filled = TodoForm.with(new Submission.Invalid({
+      values: {},
+      errors: { title: ["Required", "Too short"] }
+    }))
+
+    Vitest.expect(Html.render(
+      <Filled.Error name="title" as="ul" class="errors">
+        {(messages) => messages.map((message) => <li>{message}</li>)}
+      </Filled.Error>
+    )).toBe(`<ul class="errors" id="new-todo-title-error"><li>Required</li><li>Too short</li></ul>`)
+  })
+
+  Vitest.it("summarizes every message, linking to each field in schema order", () => {
+    const Filled = TodoForm.with(new Submission.Invalid({
+      values: {},
+      errors: { count: ["Expected an integer"], title: ["Required"] },
+      formErrors: ["The list is full."]
+    }))
+
+    Vitest.expect(Html.render(<Filled.Summary class="summary" />)).toBe(
+      `<div role="alert" tabindex="-1" autofocus class="summary" id="new-todo-summary">` +
+        `<h2>There is a problem</h2>` +
+        `<ul>` +
+          `<li>The list is full.</li>` +
+          `<li><a href="#new-todo-title">Required</a></li>` +
+          `<li><a href="#new-todo-count">Expected an integer</a></li>` +
+        `</ul>` +
+      `</div>`
+    )
+    Vitest.expect(Html.render(<Filled.Summary heading={null} autofocus={false} />)).toBe(
+      `<div role="alert" tabindex="-1" id="new-todo-summary">` +
+        `<ul>` +
+          `<li>The list is full.</li>` +
+          `<li><a href="#new-todo-title">Required</a></li>` +
+          `<li><a href="#new-todo-count">Expected an integer</a></li>` +
+        `</ul>` +
+      `</div>`
+    )
+    Vitest.expect(Html.render(<TodoForm.Summary />)).toBe("")
+  })
+
   Vitest.it("gives hand-built endpoints the same Submission payload", async () => {
     // A form and an endpoint declared separately, sharing the form's payload schema.
     const Signup = Form.make({

@@ -181,6 +181,32 @@ accepting terms.
 Fields without messages fall back to Effect's defaults, such as "Expected a
 value with a length of at least 1", and "Required" for empty fields.
 
+### Placing messages
+
+`Error` and `Summary` cover the common layouts, and the form's messages are
+available for anything else:
+
+```tsx
+// Style the whole field, not just its message
+<div class={Form.hasErrors("title") ? "field field--invalid" : "field"}>
+  <Form.Label name="title">What needs doing?</Form.Label>
+  <Form.Input name="title" />
+  {/* Choose the markup; the element keeps the id that aria-describedby uses */}
+  <Form.Error name="title" as="ul" class="errors">
+    {(messages) => messages.map((message) => <li>{message}</li>)}
+  </Form.Error>
+</div>
+```
+
+`Form.messages(name)` returns a field's messages, and without a name, the
+form's own. `Form.invalid` tells whether there are any messages at all.
+
+`<Form.Summary />` lists every message at the top of the form: the form's own,
+then each field's in schema order, linking to its control. Long forms benefit
+most. It has `role="alert"` and `autofocus`, so the browser moves focus to it
+after a full page load and htmx after a swap, without extra JavaScript. It
+includes the form's own messages, so use it instead of a nameless `Error`.
+
 ### Forms without an HttpFormEndpoint
 
 `HttpFormEndpoint.make` is a shortcut. A form built with `Form.make` has the

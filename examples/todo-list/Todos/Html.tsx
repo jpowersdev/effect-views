@@ -37,19 +37,26 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
         hx-swap="outerHTML"
       >
         <Form.Error role="alert" class="error" />
-        <Form.Label name="title">What needs doing?</Form.Label>
-        <Form.Input
-          name="title"
-          type="text"
-          autocomplete="off"
-          required
-        />
-        <Form.Error name="title" class="error" />
+        <div class={Form.hasErrors("title") ? "field field--invalid" : "field"}>
+          <Form.Label name="title">What needs doing?</Form.Label>
+          <Form.Input
+            name="title"
+            type="text"
+            autocomplete="off"
+            required
+          />
+          <Form.Error name="title" class="error" />
+        </div>
         <button type="submit">Add todo</button>
       </Form.Root>
     </main>
   )
 }
+
+const styles = `
+  .error { color: #b3261e; margin: 0.25rem 0; }
+  .field--invalid input { border: 2px solid #b3261e; }
+`
 
 const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
   <html lang="en">
@@ -58,6 +65,7 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Effect Views Todo List</title>
       <Htmx.Config />
+      <style>{Html.unsafe(styles)}</style>
       <script src="https://unpkg.com/htmx.org@2.0.8"></script>
     </head>
     <body>{children}</body>
