@@ -70,6 +70,10 @@ new page. The activity panel loads separately, about 400 ms after the
 page, through `Deferred.derive`; without JavaScript it becomes a link. Return to the index to see the updated status. Restart the server to
 reset the order.
 
+Order #7 does not exist: its handler answers with a 404 page. Unknown paths,
+such as <http://127.0.0.1:3000/nope>, and invalid ones, such as
+<http://127.0.0.1:3000/orders/abc>, get error pages from `ErrorPage.layer`.
+
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.
 

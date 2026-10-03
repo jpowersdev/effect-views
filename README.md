@@ -199,6 +199,33 @@ export const viewsLayer = HttpApiBuilder.group(
 `Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and `Htmx.trigger` set htmx
 response headers.
 
+## Error pages
+
+Handle expected errors where they happen, and choose their status with
+`Html.response`:
+
+```tsx
+orders.get(params.orderId).pipe(
+  Effect.map((order) => representation(request, <OrderView order={order} />)),
+  Effect.catchTag("OrderNotFound", (error) =>
+    Effect.succeed(Html.response(<NotFound orderId={error.orderId} />, { status: 404 })))
+)
+```
+
+`ErrorPage.layer` renders everything else: unknown routes, invalid params,
+unexpected failures, and other middleware's non-HTML error responses, such as
+the CSRF 403. It keeps the status, logs failures that would have been a 500, and
+leaves requests that do not accept HTML, such as JSON API calls, alone:
+
+```tsx
+const errorPages = ErrorPage.layer(({ htmx, status }) =>
+  htmx ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
+)
+```
+
+htmx does not swap error responses by default. `<Htmx.Config errorTarget="#errors" />`
+swaps them into an element of the page instead of its usual target.
+
 ## Cross-site request forgery
 
 `Csrf.layer()` rejects cross-origin POST, PUT, PATCH, and DELETE requests with a

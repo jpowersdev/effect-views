@@ -62,9 +62,27 @@ export const responseHandling = [
   { code: "...", swap: false }
 ] as const
 
-/** A meta element applying htmx configuration; defaults to responseHandling. */
-export const Config = (props: { readonly config?: Readonly<Record<string, unknown>> }): Html.Html =>
-  Html.element("meta", {
+export interface ConfigProps {
+  /**
+   * A selector whose contents error responses replace, such as the fragments
+   * rendered by ErrorPage.layer. Without it, htmx does not swap them.
+   */
+  readonly errorTarget?: string
+  /** Other htmx configuration, merged over the response handling. */
+  readonly config?: Readonly<Record<string, unknown>>
+}
+
+/** A meta element configuring htmx to swap 422 responses, and errors when errorTarget is set. */
+export const Config = (props: ConfigProps): Html.Html => {
+  const handling = props.errorTarget === undefined
+    ? responseHandling
+    : responseHandling.map((entry) =>
+      entry.code === "[45].."
+        ? { code: entry.code, swap: true, error: true, target: props.errorTarget, swapOverride: "innerHTML" }
+        : entry
+    )
+  return Html.element("meta", {
     name: "htmx-config",
-    content: JSON.stringify(props.config ?? { responseHandling })
+    content: JSON.stringify({ responseHandling: handling, ...props.config })
   })
+}

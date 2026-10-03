@@ -22,6 +22,10 @@
       "types": "./dist/Deferred.d.ts",
       "default": "./dist/Deferred.js"
     },
+    "./ErrorPage": {
+      "types": "./dist/ErrorPage.d.ts",
+      "default": "./dist/ErrorPage.js"
+    },
     "./Form": {
       "types": "./dist/Form.d.ts",
       "default": "./dist/Form.js"
