@@ -198,15 +198,38 @@ const WelcomeView = ({ account }: { readonly account: Account }): Html.Html => (
 )
 
 const styles = `
-  body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
-  .field { margin-bottom: 1rem; }
-  .field--invalid { border-left: 4px solid #b3261e; padding-left: 0.75rem; }
-  .error { color: #b3261e; margin: 0.25rem 0; }
-  .hint { color: #555; margin: 0.25rem 0; }
-  .summary { border: 3px solid #b3261e; padding: 0 1rem; margin-bottom: 1.5rem; }
-  .summary a { color: #b3261e; }
-  label { display: block; }
-  input[type="checkbox"] + label { display: inline; }
+  :root { color-scheme: light dark; --accent: #2f5bd3; --danger: #c0352b; --muted: #6b7280; --line: #d1d5db; }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 0 auto; padding: 2rem 1.25rem; }
+  h1 { font-size: 1.75rem; margin: 0 0 1.5rem; }
+  .field { margin-bottom: 1.25rem; }
+  label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+  input:not([type="checkbox"]), select {
+    width: 100%; padding: 0.6rem 0.75rem; font: inherit;
+    border: 1px solid var(--line); border-radius: 0.5rem; background: transparent; color: inherit;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  .field--invalid input:not([type="checkbox"]), .field--invalid select { border-color: var(--danger); }
+  .field:has(input[type="checkbox"]) { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .field:has(input[type="checkbox"]) label { font-weight: 400; margin: 0; }
+  .field:has(input[type="checkbox"]) .error { flex-basis: 100%; }
+  input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.35rem; }
+  .error { color: var(--danger); font-size: 0.9rem; margin: 0.35rem 0 0; }
+  .summary {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-left: 4px solid var(--danger); border-radius: 0.5rem;
+    padding: 0.9rem 1rem; margin-bottom: 1.75rem;
+  }
+  .summary:focus { outline: 2px solid var(--danger); outline-offset: 2px; }
+  .summary h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+  .summary ul { margin: 0; padding-left: 1.1rem; }
+  .summary li { margin: 0.15rem 0; }
+  .summary a { color: var(--danger); text-underline-offset: 2px; }
+  button {
+    width: 100%; padding: 0.75rem; font: inherit; font-weight: 600;
+    color: white; background: var(--accent); border: 0; border-radius: 0.5rem; cursor: pointer;
+  }
 `
 
 const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
