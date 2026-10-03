@@ -6,7 +6,8 @@
     "rootDir": ".",
     "tsBuildInfoFile": "../.tsbuildinfo/test.tsbuildinfo",
     "jsx": "react-jsx",
-    "jsxImportSource": "effect-views"
+    "jsxImportSource": "effect-views",
+    "types": ["node"]
   },
   "references": [
     { "path": "../src" },

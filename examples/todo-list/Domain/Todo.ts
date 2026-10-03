@@ -10,3 +10,7 @@ export const CreateTodo = Schema.Struct({
   title: Schema.NonEmptyString
 })
 export type CreateTodo = typeof CreateTodo.Type
+
+export class DuplicateTodo extends Schema.TaggedError<DuplicateTodo>()("DuplicateTodo", {
+  title: Schema.String
+}, { httpApiStatus: 409 }) {}

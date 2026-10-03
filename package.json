@@ -80,6 +80,7 @@
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0",
+    "@effect/sql-sqlite-node": "4.0.0",
     "@effect/vitest": "4.0.0",
     "@types/node": "26.1.2",
     "effect": "4.0.0",

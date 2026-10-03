@@ -1,18 +1,23 @@
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import * as Layer from "effect/Layer"
 import * as Etag from "effect/http/Etag"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as Vitest from "vitest"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import * as Http from "../examples/todo-list/Http.js"
 
-const makeApp = () => HttpRouter.toWebHandler(
+const makeApp = (filename = ":memory:") => HttpRouter.toWebHandler(
   Http.routes.pipe(
     Layer.provide(Layer.mergeAll(
       NodeServices.layer,
       NodeHttpPlatform.layer,
-      Etag.layer
+      Etag.layer,
+      SqliteClient.layer({ filename })
     ))
   ),
   { disableLogger: true }
@@ -117,10 +122,46 @@ Vitest.describe("todo list example", () => {
       }))
       Vitest.expect(crossSite.status).toBe(403)
 
+      const duplicateJson = await handler(new Request("http://localhost/api/todos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Try Effect views" })
+      }))
+      Vitest.expect(duplicateJson.status).toBe(409)
+      Vitest.expect(await duplicateJson.json()).toEqual({ _tag: "DuplicateTodo", title: "Try Effect views" })
+
       const after = await handler(new Request("http://localhost/api/todos"))
       Vitest.expect(await after.json()).toEqual(initial)
     } finally {
       await dispose()
+    }
+  })
+
+  Vitest.it("keeps todos in the database across restarts", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "effect-views-"))
+    const filename = join(directory, "todos.sqlite")
+
+    try {
+      const first = makeApp(filename)
+      await first.handler(new Request("http://localhost/todos", {
+        method: "POST",
+        body: new URLSearchParams({ title: "Survive a restart" })
+      }))
+      await first.dispose()
+
+      const second = makeApp(filename)
+      try {
+        const json = await second.handler(new Request("http://localhost/api/todos"))
+        Vitest.expect(await json.json()).toEqual([
+          { id: 1, title: "Try Effect views" },
+          { id: 2, title: "Build a hypermedia application" },
+          { id: 3, title: "Survive a restart" }
+        ])
+      } finally {
+        await second.dispose()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 })

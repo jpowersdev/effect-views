@@ -13,6 +13,7 @@ export const group = HttpApiGroup.make("todosApi")
   .add(
     HttpApiEndpoint.post("create", "/todos", {
       payload: Todo.CreateTodo,
-      success: Todo.Todo
+      success: Todo.Todo,
+      error: Todo.DuplicateTodo
     })
   )

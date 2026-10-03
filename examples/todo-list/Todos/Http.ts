@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Layer from "effect/Layer"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
@@ -9,7 +10,7 @@ import * as Submission from "effect-views/Submission"
 import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
 import * as Html from "./Html.js"
-import type * as Todo from "../Domain/Todo.js"
+import * as Todo from "../Domain/Todo.js"
 
 export const apiLayer = HttpApiBuilder.group(
   RootApi.Api,
@@ -19,7 +20,11 @@ export const apiLayer = HttpApiBuilder.group(
 
     return handlers
       .handle("list", () => todos.list)
-      .handle("create", ({ payload }) => todos.add(payload.title))
+      .handle("create", ({ payload }) =>
+        Effect.flatMap(todos.add(payload.title), Option.match({
+          onNone: () => Effect.fail(new Todo.DuplicateTodo({ title: payload.title })),
+          onSome: Effect.succeed
+        })))
   })
 )
 
@@ -41,13 +46,13 @@ export const viewsLayer = HttpApiBuilder.group(
       .handle("create", ({ payload, request }) =>
         Effect.gen(function* () {
           const { title } = yield* payload
-          if ((yield* todos.list).some((todo) => todo.title === title)) {
+          const added = yield* todos.add(title)
+          if (Option.isNone(added)) {
             return yield* new Submission.Invalid({
               values: { title },
               errors: { title: ["That is already on the list"] }
             })
           }
-          yield* todos.add(title)
           // Without htmx, redirect so that reloading the page does not submit again.
           if (!Htmx.isRequest(request)) return ViewHtml.seeOther("/")
           return Html.app(yield* todos.list)

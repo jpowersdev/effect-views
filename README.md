@@ -22,7 +22,7 @@ to htmx requests. The same forms work with or without JavaScript.
 
 ## Try it locally
 
-Use Node.js 22+ and pnpm 11.15.0. From the repository root:
+Use Node.js 22.13+ and pnpm 11.15.0. From the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -36,8 +36,9 @@ pnpm example:todo
 | [Orders](examples/orders/) | `pnpm example:orders` | <http://127.0.0.1:3000> |
 
 Each command builds the source and starts its example on port 3000. Stop it with
-Ctrl+C. Set `PORT` to use another port. Demo state is held in memory and resets
-when the server restarts.
+Ctrl+C. Set `PORT` to use another port. The todo list is stored in
+`todos.sqlite`; the orders demo keeps its state in memory and resets when the
+server restarts.
 
 The [example walkthroughs](examples/README.md) explain what to try, where to
 read the code, and how to make requests with curl.
@@ -88,13 +89,13 @@ express fail with the same error:
 .handle("create", ({ payload, request }) =>
   Effect.gen(function* () {
     const { title } = yield* payload
-    if (yield* todos.exists(title)) {
+    const added = yield* todos.add(title) // none when the title is taken
+    if (Option.isNone(added)) {
       return yield* new Submission.Invalid({
         values: { title },
         errors: { title: ["That is already on the list"] }
       })
     }
-    yield* todos.add(title)
     return Htmx.isRequest(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
   }).pipe(
     Effect.catchTag("FormInvalid", (invalid) =>
