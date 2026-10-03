@@ -1,6 +1,6 @@
 # Runnable examples
 
-Two local examples of [effect-views](../README.md). Use Node.js 22.13+ and
+Two local examples of [effect-views](../README.md). Use Node.js 24+ and
 pnpm 11.15.0, and run commands from the repository root.
 
 ```sh
@@ -22,8 +22,10 @@ form updates the todo section without navigating. Disable JavaScript and reload
 to try the same form: it redirects back to the list, so reloading does not add
 the todo twice.
 
-Add a todo that is already on the list to see the form returned with an error
-and the title you typed. Todos are stored with SQLite in `todos.sqlite` (set
+Submit an empty or overlong title, or one already on the list, to see the form
+returned with the title you typed and a message written in
+[`Domain/Todo.ts`](todo-list/Domain/Todo.ts). The list holds ten todos; past
+that, the form shows an error of its own. Todos are stored with SQLite in `todos.sqlite` (set
 `TODOS_DB` to use another file) and survive restarts; delete the file to start
 over.
 

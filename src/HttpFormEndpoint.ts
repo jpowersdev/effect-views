@@ -65,7 +65,7 @@ export function make<
   const { payload, ...request } = options
   const endpoint = HttpViewEndpoint.post(identifier, path, {
     ...request,
-    payload: HttpViewEndpoint.form(Submission.schema(payload))
+    payload: Submission.schema(payload)
   })
 
   Object.defineProperty(endpoint, TypeId, {

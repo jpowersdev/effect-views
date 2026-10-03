@@ -1,5 +1,4 @@
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import * as Layer from "effect/Layer"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
@@ -20,11 +19,7 @@ export const apiLayer = HttpApiBuilder.group(
 
     return handlers
       .handle("list", () => todos.list)
-      .handle("create", ({ payload }) =>
-        Effect.flatMap(todos.add(payload.title), Option.match({
-          onNone: () => Effect.fail(new Todo.DuplicateTodo({ title: payload.title })),
-          onSome: Effect.succeed
-        })))
+      .handle("create", ({ payload }) => todos.add(payload.title))
   })
 )
 
@@ -46,13 +41,21 @@ export const viewsLayer = HttpApiBuilder.group(
       .handle("create", ({ payload, request }) =>
         Effect.gen(function* () {
           const { title } = yield* payload
-          const added = yield* todos.add(title)
-          if (Option.isNone(added)) {
-            return yield* new Submission.Invalid({
-              values: { title },
-              errors: { title: ["That is already on the list"] }
+          // Domain errors become messages on the form: one for the field, one for the whole form.
+          yield* todos.add(title).pipe(
+            Effect.catchTags({
+              DuplicateTodo: () =>
+                Effect.fail(new Submission.Invalid({
+                  values: { title },
+                  errors: { title: ["That is already on the list"] }
+                })),
+              TodoListFull: ({ limit }) =>
+                Effect.fail(new Submission.Invalid({
+                  values: { title },
+                  formErrors: [`The list is full at ${limit} todos. Finish one before adding more.`]
+                }))
             })
-          }
+          )
           // Without htmx, redirect so that reloading the page does not submit again.
           if (!Htmx.isRequest(request)) return ViewHtml.seeOther("/")
           return Html.app(yield* todos.list)

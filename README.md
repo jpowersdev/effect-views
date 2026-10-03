@@ -27,7 +27,7 @@ to htmx requests. The same forms work with or without JavaScript.
 
 ## Try it locally
 
-Use Node.js 22.13+ and pnpm 11.15.0. From the repository root:
+Use Node.js 24+ and pnpm 11.15.0. From the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -87,20 +87,27 @@ server.
 
 A form endpoint's handler receives a `Submission`, which never fails to decode.
 Yielding it gives the decoded payload, or fails with `Submission.Invalid`, which
-keeps the submitted values and each field's messages. Rules the schema cannot
-express fail with the same error:
+keeps the submitted values, each field's messages, and messages for the form as
+a whole. Domain errors become the same error:
 
 ```ts
 .handle("create", ({ payload, request }) =>
   Effect.gen(function* () {
     const { title } = yield* payload
-    const added = yield* todos.add(title) // none when the title is taken
-    if (Option.isNone(added)) {
-      return yield* new Submission.Invalid({
-        values: { title },
-        errors: { title: ["That is already on the list"] }
+    yield* todos.add(title).pipe(
+      Effect.catchTags({
+        DuplicateTodo: () =>
+          Effect.fail(new Submission.Invalid({
+            values: { title },
+            errors: { title: ["That is already on the list"] }
+          })),
+        TodoListFull: ({ limit }) =>
+          Effect.fail(new Submission.Invalid({
+            values: { title },
+            formErrors: [`The list is full at ${limit} todos. Finish one before adding more.`]
+          }))
       })
-    }
+    )
     return Htmx.isRequest(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
   }).pipe(
     Effect.catchTag("FormInvalid", (invalid) =>
@@ -112,12 +119,14 @@ express fail with the same error:
 `NewTodo.with(invalid)` returns the same form components, filled in. Inputs,
 textareas, checkboxes, and selects given `options` show the submitted values
 (password inputs stay empty); controls with errors get `aria-invalid` and an
-`aria-describedby` pointing at `<NewTodo.Error name="title" />`:
+`aria-describedby` pointing at `<NewTodo.Error name="title" />`. Without a
+`name`, `Error` shows the form's own messages, and `Root` points at it:
 
 ```tsx
 const Form = NewTodo.with(invalid)
 
 <Form.Root hx-boost="true" hx-push-url="false" hx-target="#todo-app" hx-swap="outerHTML">
+  <Form.Error role="alert" class="error" />
   <Form.Label name="title">What needs doing?</Form.Label>
   <Form.Input name="title" required />
   <Form.Error name="title" class="error" />
@@ -130,6 +139,65 @@ head to swap 422 responses as well.
 
 A successful POST without htmx answers with `Html.seeOther`, a 303 redirect, so
 that reloading the page does not submit the form again.
+
+### Writing messages
+
+Messages come from the schema. Give each check a `message`, and give a field a
+`messageMissingKey` for when it is left empty: forms submit an empty input as a
+missing value, so optional fields can be left blank.
+
+```ts
+export const CreateTodo = Schema.Struct({
+  title: Schema.Trim.check(
+    Schema.isMinLength(1, { message: "Write what needs doing" }),
+    Schema.isMaxLength(80, { message: "Keep it under 80 characters" })
+  ).annotateKey({ messageMissingKey: "Write what needs doing" })
+})
+```
+
+A field's `message` annotation also covers text that cannot be converted, such
+as "twelve" for a number:
+
+```ts
+age: Schema.Int.check(Schema.isGreaterThanOrEqualTo(13))
+  .annotate({ message: "Enter your age in years, 13 or over" })
+```
+
+Checks on the whole Struct become form errors:
+
+```ts
+const ChangePassword = Schema.Struct({
+  password: Schema.String,
+  confirmation: Schema.String
+}).check(Schema.makeFilter(({ confirmation, password }) =>
+  password === confirmation ? undefined : "The passwords do not match"
+))
+```
+
+Fields without messages fall back to Effect's defaults, such as "Expected a
+value with a length of at least 1", and "Required" for empty fields.
+
+### Forms without an HttpFormEndpoint
+
+`HttpFormEndpoint.make` is a shortcut. A form built with `Form.make` has the
+same `Submission` payload schema, so any endpoint can receive it, including one
+with path parameters:
+
+```ts
+const Rename = Form.make({
+  id: "rename",
+  action: "/todos/1/rename",
+  payload: Schema.Struct({ title: Todo.Title })
+})
+
+const rename = HttpViewEndpoint.post("rename", "/todos/:id/rename", {
+  params: { id: Schema.Int },
+  payload: Rename.payload
+})
+```
+
+`Submission.schema(struct)` makes the same payload without a form, and
+`Submission.decode(struct, values)` decodes values directly.
 
 ## JSX without React
 

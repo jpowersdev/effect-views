@@ -1,11 +1,21 @@
 /** @jsxImportSource effect-views */
 
+import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
+import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Etag from "effect/http/Etag"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 import * as Vitest from "vitest"
 
 import * as Form from "../src/Form.js"
 import * as Html from "../src/Html.js"
 import * as HttpFormEndpoint from "../src/HttpFormEndpoint.js"
+import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 import * as Submission from "../src/Submission.js"
 
 const TodoForm = Form.make({
@@ -123,6 +133,74 @@ Vitest.describe("Form", () => {
         `<option value="high" selected>High</option>` +
       `</select>`
     )
+  })
+
+  Vitest.it("shows the form's own errors and describes the form with them", () => {
+    const Filled = TodoForm.with(new Submission.Invalid({
+      values: { title: "Hi" },
+      formErrors: ["The list is full."]
+    }))
+
+    Vitest.expect(Html.render(
+      <Filled.Root aria-describedby="intro">
+        <Filled.Error role="alert" />
+      </Filled.Root>
+    )).toBe(
+      `<form aria-describedby="intro new-todo-error" id="new-todo" method="post" action="/todos">` +
+        `<p role="alert" id="new-todo-error">The list is full.</p>` +
+      `</form>`
+    )
+    Vitest.expect(Html.render(<TodoForm.Root><TodoForm.Error /></TodoForm.Root>)).toBe(
+      `<form id="new-todo" method="post" action="/todos"></form>`
+    )
+  })
+
+  Vitest.it("gives hand-built endpoints the same Submission payload", async () => {
+    // A form and an endpoint declared separately, sharing the form's payload schema.
+    const Signup = Form.make({
+      id: "signup",
+      action: "/signup",
+      payload: Schema.Struct({ email: Schema.String.check(Schema.isPattern(/@/, { message: "Enter an email address" })) })
+    })
+    const signup = HttpViewEndpoint.post("signup", "/signup", { payload: Signup.payload })
+    const api = HttpApi.make("Signup").add(HttpApiGroup.make("signup").add(signup))
+
+    const handlers = HttpApiBuilder.group(api, "signup", (handlers) =>
+      handlers.handle("signup", ({ payload }) =>
+        Effect.gen(function* () {
+          const { email } = yield* payload
+          return <p>Welcome, {email}</p>
+        }).pipe(
+          Effect.catchTag("FormInvalid", (invalid) => {
+            const Filled = Signup.with(invalid)
+            return Effect.succeed(Html.response(<Filled.Error name="email" />, { status: 422 }))
+          })
+        )))
+
+    const { dispose, handler } = HttpRouter.toWebHandler(
+      HttpApiBuilder.layer(api).pipe(
+        Layer.provide(handlers),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer))
+      ),
+      { disableLogger: true }
+    )
+
+    try {
+      const post = (email: string) => handler(new Request("http://localhost/signup", {
+        method: "POST",
+        body: new URLSearchParams({ email })
+      }))
+
+      const valid = await post("ada@example.com")
+      Vitest.expect(valid.status).toBe(200)
+      Vitest.expect(await valid.text()).toBe("<p>Welcome, ada@example.com</p>")
+
+      const invalid = await post("ada")
+      Vitest.expect(invalid.status).toBe(422)
+      Vitest.expect(await invalid.text()).toBe(`<p id="signup-email-error">Enter an email address</p>`)
+    } finally {
+      await dispose()
+    }
   })
 
   Vitest.it("does not refill password inputs", () => {

@@ -2,8 +2,7 @@ import type * as Schema from "effect/Schema"
 
 import * as Html from "./Html.js"
 import * as HttpFormEndpoint from "./HttpFormEndpoint.js"
-import * as HttpViewEndpoint from "./HttpViewEndpoint.js"
-import type * as Submission from "./Submission.js"
+import * as Submission from "./Submission.js"
 
 type FieldName<Fields extends Schema.Struct.Fields> = Extract<keyof Fields, string>
 type FieldType<Fields extends Schema.Struct.Fields, Name extends FieldName<Fields>> =
@@ -83,7 +82,8 @@ export type SelectProps<Name extends string> = NativeAttributes<"id" | "name" | 
 }
 
 export type ErrorProps<Name extends string> = NativeAttributes<"id" | "name"> & {
-  readonly name: Name
+  /** The field whose messages to show; without it, the form's own messages. */
+  readonly name?: Name
 }
 
 export interface Config<Fields extends Schema.Struct.Fields, Action extends string> {
@@ -102,7 +102,11 @@ export interface DeriveConfig<Endpoint extends HttpFormEndpoint.Any> {
 
 export interface Form<Fields extends Schema.Struct.Fields, Action extends string = string> {
   readonly schema: Schema.Struct<Fields>
-  readonly payload: Schema.Struct<Fields>["Rebuild"]
+  /**
+   * The payload schema for the endpoint that receives this form. Its handler
+   * gets a Submission, so invalid input reaches it instead of failing earlier.
+   */
+  readonly payload: ReturnType<typeof Submission.schema<Fields>>
   readonly id: string
   readonly action: Action
   readonly idFor: <Name extends FieldName<Fields>>(name: Name) => string
@@ -112,7 +116,11 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
   readonly Textarea: <Name extends TextFieldName<Fields>>(props: TextareaProps<Name>) => Html.Html
   readonly Checkbox: <Name extends CheckboxFieldName<Fields>>(props: CheckboxProps<Name>) => Html.Html
   readonly Select: <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>) => Html.Html
-  /** A field's error messages, or nothing when it has none. Controls refer to it with aria-describedby. */
+  /**
+   * A field's error messages, or the form's own messages without a name, or
+   * nothing when there are none. Controls and the form refer to it with
+   * aria-describedby.
+   */
   readonly Error: <Name extends FieldName<Fields>>(props: ErrorProps<Name>) => Html.Html
   /**
    * The same form, filled with an invalid submission's values and errors.
@@ -161,10 +169,11 @@ export const make = <
 ): Form<Fields, Action> => {
   const { action, id, payload: schema } = config
   validateId(id)
-  const payload = HttpViewEndpoint.form(schema)
+  const payload = Submission.schema(schema)
 
   const idFor = <Name extends FieldName<Fields>>(name: Name): string => fieldId(id, name)
   const errorIdFor = (name: string): string => `${fieldId(id, name)}-error`
+  const formErrorId = `${id}-error`
 
   const build = (state: Submission.Invalid | undefined): Form<Fields, Action> => {
     const valueOf = (name: string) => firstValue(state?.values[name])
@@ -177,9 +186,11 @@ export const make = <
         : { "aria-invalid": "true", "aria-describedby": joinIds(describedBy, errorIdFor(name)) }
 
     const Root = (props: RootProps): Html.Html => {
-      const { children, ...attributes } = props
+      const { "aria-describedby": describedBy, children, ...attributes } = props
+      const formErrors = state?.formErrors ?? []
       return Html.element("form", {
         ...attributes,
+        "aria-describedby": formErrors.length === 0 ? describedBy : joinIds(describedBy, formErrorId),
         id,
         method: "post",
         action,
@@ -251,9 +262,13 @@ export const make = <
 
     const Error = <Name extends FieldName<Fields>>(props: ErrorProps<Name>): Html.Html => {
       const { name, ...attributes } = props
-      const messages = errorsOf(name)
+      const messages = name === undefined ? state?.formErrors ?? [] : errorsOf(name)
       if (messages.length === 0) return Html.fragment()
-      return Html.element("p", { ...attributes, id: errorIdFor(name), children: messages.join(" ") })
+      return Html.element("p", {
+        ...attributes,
+        id: name === undefined ? formErrorId : errorIdFor(name),
+        children: messages.join(" ")
+      })
     }
 
     return Object.freeze({

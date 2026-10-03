@@ -36,6 +36,7 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
         hx-target="#todo-app"
         hx-swap="outerHTML"
       >
+        <Form.Error role="alert" class="error" />
         <Form.Label name="title">What needs doing?</Form.Label>
         <Form.Input
           name="title"

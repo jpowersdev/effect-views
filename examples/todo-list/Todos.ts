@@ -1,7 +1,7 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import type * as Option from "effect/Option"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as SqlSchema from "effect/sql/SqlSchema"
@@ -10,8 +10,7 @@ import * as Todo from "./Domain/Todo.js"
 
 export interface Operations {
   readonly list: Effect.Effect<ReadonlyArray<Todo.Todo>>
-  /** Adds a todo, or returns none when one with the same title exists. */
-  readonly add: (title: string) => Effect.Effect<Option.Option<Todo.Todo>>
+  readonly add: (title: string) => Effect.Effect<Todo.Todo, Todo.DuplicateTodo | Todo.TodoListFull>
 }
 
 /** Domain service and entrypoint for the adjacent Todos/ modules. */
@@ -45,7 +44,13 @@ export const layer = Layer.effect(
       execute: () => sql`SELECT id, title FROM todos ORDER BY id`
     })
 
-    const add = SqlSchema.findOneOption({
+    const count = SqlSchema.findOne({
+      Request: Schema.Void,
+      Result: Schema.Struct({ count: Schema.Int }),
+      execute: () => sql`SELECT count(*) AS count FROM todos`
+    })
+
+    const insert = SqlSchema.findOneOption({
       Request: Schema.String,
       Result: Todo.Todo,
       execute: (title) => sql`
@@ -58,7 +63,17 @@ export const layer = Layer.effect(
     // Database failures are unexpected here; they become defects and 500 responses.
     return Todos.of({
       list: Effect.orDie(list(undefined)),
-      add: (title) => Effect.orDie(add(title))
+      add: (title) =>
+        Effect.gen(function* () {
+          const current = yield* Effect.orDie(count(undefined))
+          if (current.count >= Todo.maxTodos) return yield* new Todo.TodoListFull({ limit: Todo.maxTodos })
+          const added = yield* Effect.orDie(insert(title))
+          if (Option.isNone(added)) return yield* new Todo.DuplicateTodo({ title })
+          return added.value
+        }).pipe(
+          sql.withTransaction,
+          Effect.catchTag("SqlError", Effect.die)
+        )
     })
   })
 ).pipe(Layer.orDie)

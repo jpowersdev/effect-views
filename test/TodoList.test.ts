@@ -102,7 +102,23 @@ Vitest.describe("todo list example", () => {
       const invalidBody = await invalid.text()
       Vitest.expect(invalidBody).toMatch(/^<!doctype html>/)
       Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="new-todo-title-error"')
-      Vitest.expect(invalidBody).toContain('<p class="error" id="new-todo-title-error">Expected a value with a length of at least 1</p>')
+      Vitest.expect(invalidBody).toContain('<p class="error" id="new-todo-title-error">Write what needs doing</p>')
+
+      const blank = await handler(new Request("http://localhost/todos", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: new URLSearchParams({ title: "   " })
+      }))
+      Vitest.expect(blank.status).toBe(422)
+      Vitest.expect(await blank.text()).toContain("Write what needs doing")
+
+      const long = await handler(new Request("http://localhost/todos", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: new URLSearchParams({ title: "x".repeat(81) })
+      }))
+      Vitest.expect(long.status).toBe(422)
+      Vitest.expect(await long.text()).toContain("Keep it under 80 characters")
 
       const duplicate = await handler(new Request("http://localhost/todos", {
         method: "POST",
@@ -162,6 +178,36 @@ Vitest.describe("todo list example", () => {
       }
     } finally {
       rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  Vitest.it("shows a form error when the list is full", async () => {
+    const { dispose, handler } = makeApp()
+    const post = (title: string, headers: Record<string, string> = { "HX-Request": "true" }) =>
+      handler(new Request("http://localhost/todos", { method: "POST", headers, body: new URLSearchParams({ title }) }))
+
+    try {
+      // Two todos are seeded; the list holds ten.
+      for (let i = 3; i <= 10; i++) Vitest.expect((await post(`Todo ${i}`)).status).toBe(200)
+
+      const full = await post("One too many")
+      Vitest.expect(full.status).toBe(422)
+      const body = await full.text()
+      Vitest.expect(body).toMatch(/<form\b[^>]*\baria-describedby="new-todo-error"/)
+      Vitest.expect(body).toContain(
+        '<p role="alert" class="error" id="new-todo-error">The list is full at 10 todos. Finish one before adding more.</p>'
+      )
+      Vitest.expect(body).toContain('value="One too many"')
+
+      const json = await handler(new Request("http://localhost/api/todos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Through the API" })
+      }))
+      Vitest.expect(json.status).toBe(409)
+      Vitest.expect(await json.json()).toEqual({ _tag: "TodoListFull", limit: 10 })
+    } finally {
+      await dispose()
     }
   })
 })

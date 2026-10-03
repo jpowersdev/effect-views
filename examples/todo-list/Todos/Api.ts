@@ -14,6 +14,6 @@ export const group = HttpApiGroup.make("todosApi")
     HttpApiEndpoint.post("create", "/todos", {
       payload: Todo.CreateTodo,
       success: Todo.Todo,
-      error: Todo.DuplicateTodo
+      error: [Todo.DuplicateTodo, Todo.TodoListFull]
     })
   )
