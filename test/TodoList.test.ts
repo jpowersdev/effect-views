@@ -110,6 +110,13 @@ Vitest.describe("todo list example", () => {
       Vitest.expect(duplicateBody).toContain('value="Try Effect views"')
       Vitest.expect(duplicateBody).toContain("That is already on the list")
 
+      const crossSite = await handler(new Request("http://localhost/todos", {
+        method: "POST",
+        headers: { "Sec-Fetch-Site": "cross-site", Origin: "https://evil.test" },
+        body: new URLSearchParams({ title: "Forged" })
+      }))
+      Vitest.expect(crossSite.status).toBe(403)
+
       const after = await handler(new Request("http://localhost/api/todos"))
       Vitest.expect(await after.json()).toEqual(initial)
     } finally {

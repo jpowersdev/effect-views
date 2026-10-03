@@ -4,6 +4,7 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import { createServer } from "node:http"
 
+import * as Csrf from "effect-views/Csrf"
 import * as Htmx from "effect-views/Htmx"
 
 import * as RootApi from "./RootApi.js"
@@ -16,7 +17,8 @@ const apiRoutes = HttpApiBuilder.layer(RootApi.Api).pipe(
 
 export const routes = Layer.mergeAll(
   apiRoutes,
-  Htmx.varyLayer
+  Htmx.varyLayer,
+  Csrf.layer()
 ).pipe(
   Layer.provide(Todos.layer)
 )

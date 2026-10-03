@@ -14,6 +14,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./Csrf": {
+      "types": "./dist/Csrf.d.ts",
+      "default": "./dist/Csrf.js"
+    },
     "./Deferred": {
       "types": "./dist/Deferred.d.ts",
       "default": "./dist/Deferred.js"

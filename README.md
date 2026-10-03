@@ -199,6 +199,23 @@ export const viewsLayer = HttpApiBuilder.group(
 `Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and `Htmx.trigger` set htmx
 response headers.
 
+## Cross-site request forgery
+
+`Csrf.layer()` rejects cross-origin POST, PUT, PATCH, and DELETE requests with a
+403. It needs no tokens or session state: browsers send `Sec-Fetch-Site` with
+every request, and the middleware falls back to comparing `Origin` with `Host`.
+Requests with neither header, such as those from curl, are allowed, since no
+browser can be tricked into sending them.
+
+```ts
+const app = Layer.mergeAll(routes, Htmx.varyLayer, Csrf.layer())
+```
+
+Pass `trustedOrigins` for other sites that may submit forms to the application,
+and `reject` to customize the response. Behind a proxy that rewrites `Host`,
+browsers without Fetch Metadata need the public origin in `trustedOrigins`. Set
+session cookies with `SameSite=Lax` as well.
+
 ## Async views
 
 Components stay synchronous. TypeScript gives every JSX expression the same
