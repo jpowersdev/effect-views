@@ -199,7 +199,7 @@ const WelcomeView = ({ account }: { readonly account: Account }): Html.Html => (
 
 const styles = `
   :root { color-scheme: light dark; --accent: #2f5bd3; --danger: #c0352b; --muted: #6b7280; --line: #d1d5db; }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 0 auto; padding: 2rem 1.25rem; }
   h1 { font-size: 1.75rem; margin: 0 0 1.5rem; }
   .field { margin-bottom: 1.25rem; }
@@ -221,7 +221,8 @@ const styles = `
     border-left: 4px solid var(--danger); border-radius: 0.5rem;
     padding: 0.9rem 1rem; margin-bottom: 1.75rem;
   }
-  .summary:focus { outline: 2px solid var(--danger); outline-offset: 2px; }
+  /* Focus moves here so screen readers announce it; there is nothing to interact with, so no ring */
+  .summary:focus { outline: none; }
   .summary h2 { font-size: 1rem; margin: 0 0 0.4rem; }
   .summary ul { margin: 0; padding-left: 1.1rem; }
   .summary li { margin: 0.15rem 0; }
