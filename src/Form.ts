@@ -143,6 +143,8 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
   readonly hasErrors: <Name extends FieldName<Fields>>(name?: Name) => boolean
   /** Whether there are any messages at all, for the form or any field. */
   readonly invalid: boolean
+  /** Rejects a decoded submission with messages, keeping its values for the form. */
+  readonly reject: (value: Schema.Struct<Fields>["Type"], messages: Submission.Messages) => Submission.Invalid
   /**
    * The same form, filled with an invalid submission's values and errors.
    * Password inputs are left empty.
@@ -349,6 +351,8 @@ export const make = <
       messages,
       hasErrors,
       invalid,
+      reject: (value: Schema.Struct<Fields>["Type"], messages: Submission.Messages) =>
+        Submission.reject(schema, value, messages),
       with: build
     })
   }

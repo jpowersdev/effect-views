@@ -45,13 +45,11 @@ export const viewsLayer = HttpApiBuilder.group(
           yield* todos.add(title).pipe(
             Effect.catchTags({
               DuplicateTodo: () =>
-                Effect.fail(new Submission.Invalid({
-                  values: { title },
+                Effect.fail(Html.NewTodo.reject({ title }, {
                   errors: { title: ["That is already on the list"] }
                 })),
               TodoListFull: ({ limit }) =>
-                Effect.fail(new Submission.Invalid({
-                  values: { title },
+                Effect.fail(Html.NewTodo.reject({ title }, {
                   formErrors: [`The list is full at ${limit} todos. Finish one before adding more.`]
                 }))
             })

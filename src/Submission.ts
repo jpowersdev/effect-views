@@ -144,6 +144,23 @@ export const decode = <Fields extends Schema.Struct.Fields>(
   return Exit.fail(new Invalid({ values, errors, formErrors }))
 }
 
+export interface Messages {
+  readonly errors?: Errors
+  readonly formErrors?: ReadonlyArray<string>
+}
+
+/**
+ * Rejects a decoded value, for rules checked after decoding, such as an email
+ * address already in use. The value is encoded back into form values so the
+ * form can be shown again as it was submitted.
+ */
+export const reject = <Fields extends Schema.Struct.Fields>(
+  schema: Schema.Struct<Fields>,
+  value: Schema.Struct<Fields>["Type"],
+  messages: Messages
+): Invalid =>
+  new Invalid({ values: Schema.encodeSync(stringTreeCodec(schema))(value) as Values, ...messages })
+
 const RawValues = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)]))
 
 /**

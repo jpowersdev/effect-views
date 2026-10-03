@@ -72,6 +72,7 @@
     "dev": "pnpm build && tsx --watch examples/orders/main.tsx",
     "example": "pnpm example:orders",
     "example:orders": "pnpm build && node dist-examples/orders/main.js",
+    "example:signup": "pnpm build && node dist-examples/signup/main.js",
     "example:todo": "pnpm build && node dist-examples/todo-list/main.js",
     "test": "pnpm build:lib && vitest run"
   },

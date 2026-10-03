@@ -102,6 +102,15 @@ Vitest.describe("Submission", () => {
     Vitest.expect(error.formErrors).toEqual(["Try again later"])
   })
 
+  Vitest.it("rejects a decoded value, encoding it back into form values", () => {
+    const error = Submission.reject(Contact, { name: "Ada", age: 36, subscribe: false }, {
+      errors: { name: ["Taken"] }
+    })
+    Vitest.expect(error.values).toEqual({ name: "Ada", age: "36", subscribe: "false" })
+    Vitest.expect(error.errors).toEqual({ name: ["Taken"] })
+    Vitest.expect(error.formErrors).toEqual([])
+  })
+
   Vitest.it("is a URL-encoded payload schema that never fails to decode", () => {
     const decode = Schema.decodeUnknownSync(Submission.schema(Contact))
     Vitest.expect(Exit.isSuccess(decode({ name: "Ada", age: "36", subscribe: "false" }))).toBe(true)

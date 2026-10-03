@@ -1,6 +1,6 @@
 # Runnable examples
 
-Two local examples of [effect-views](../README.md). Use Node.js 24+ and
+Three local examples of [effect-views](../README.md). Use Node.js 24+ and
 pnpm 11.15.0, and run commands from the repository root.
 
 ```sh
@@ -71,6 +71,26 @@ curl -i http://127.0.0.1:3000/api/todos
 
 Successful HTML responses include `Vary: HX-Request` so caches can distinguish
 pages from fragments.
+
+## Sign-up: a long form with an error summary
+
+```sh
+pnpm example:signup
+```
+
+Open <http://127.0.0.1:3000> and press **Create account** without filling
+anything in. A summary at the top lists every problem, linking to each field,
+and takes focus. Then try:
+
+- "thirty" for the age, or a short password: the messages come from the
+  [schema](signup/App.tsx), next to the rules they explain.
+- Different passwords: a rule across two fields, shown on the second.
+- A Team plan at age 14: a rule about the whole form, shown first in the summary.
+- The email address ada@example.com, which is taken: the form comes back with
+  everything you entered except the passwords.
+
+A valid submission creates the account and goes to its page, with htmx or
+without JavaScript. Accounts are kept in memory until the server restarts.
 
 ## Orders: pages and fragments
 

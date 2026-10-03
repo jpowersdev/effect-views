@@ -40,6 +40,15 @@ export const reswap = (response: HttpServerResponse.HttpServerResponse, strategy
 export const redirect = (response: HttpServerResponse.HttpServerResponse, location: string) =>
   HttpServerResponse.setHeader(response, "hx-redirect", location)
 
+/**
+ * Sends the browser to another page after a successful POST: a 303 redirect,
+ * or for htmx, `HX-Location`, which loads the page with htmx and pushes its URL.
+ */
+export const seeOther = (request: HttpServerRequest.HttpServerRequest, location: string) =>
+  isRequest(request)
+    ? HttpServerResponse.empty({ status: 204, headers: { "hx-location": location } })
+    : Html.seeOther(location)
+
 export const trigger = (
   response: HttpServerResponse.HttpServerResponse,
   event: string,

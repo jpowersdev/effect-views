@@ -39,11 +39,12 @@ pnpm example:todo
 | --- | --- | --- |
 | [Todo list](examples/todo-list/) | `pnpm example:todo` | <http://127.0.0.1:3000> |
 | [Orders](examples/orders/) | `pnpm example:orders` | <http://127.0.0.1:3000> |
+| [Sign-up](examples/signup/) | `pnpm example:signup` | <http://127.0.0.1:3000> |
 
 Each command builds the source and starts its example on port 3000. Stop it with
 Ctrl+C. Set `PORT` to use another port. The todo list is stored in
-`todos.sqlite`; the orders demo keeps its state in memory and resets when the
-server restarts.
+`todos.sqlite`; the orders and sign-up demos keep their state in memory, which
+resets when the server restarts.
 
 The [example walkthroughs](examples/README.md) explain what to try, where to
 read the code, and how to make requests with curl.
@@ -88,7 +89,8 @@ server.
 A form endpoint's handler receives a `Submission`, which never fails to decode.
 Yielding it gives the decoded payload, or fails with `Submission.Invalid`, which
 keeps the submitted values, each field's messages, and messages for the form as
-a whole. Domain errors become the same error:
+a whole. `NewTodo.reject(value, messages)` turns a domain error into the same
+error, encoding the decoded value back into the form's values:
 
 ```ts
 .handle("create", ({ payload, request }) =>
@@ -97,13 +99,11 @@ a whole. Domain errors become the same error:
     yield* todos.add(title).pipe(
       Effect.catchTags({
         DuplicateTodo: () =>
-          Effect.fail(new Submission.Invalid({
-            values: { title },
+          Effect.fail(NewTodo.reject({ title }, {
             errors: { title: ["That is already on the list"] }
           })),
         TodoListFull: ({ limit }) =>
-          Effect.fail(new Submission.Invalid({
-            values: { title },
+          Effect.fail(NewTodo.reject({ title }, {
             formErrors: [`The list is full at ${limit} todos. Finish one before adding more.`]
           }))
       })
@@ -138,7 +138,9 @@ htmx does not swap 4xx responses by default. Put `<Htmx.Config />` in the page
 head to swap 422 responses as well.
 
 A successful POST without htmx answers with `Html.seeOther`, a 303 redirect, so
-that reloading the page does not submit the form again.
+that reloading the page does not submit the form again. `Htmx.seeOther(request,
+location)` does the same for both: a 303 for the browser, or `HX-Location` for
+htmx, which loads the page and pushes its URL.
 
 ### Writing messages
 
@@ -205,7 +207,12 @@ form's own. `Form.invalid` tells whether there are any messages at all.
 then each field's in schema order, linking to its control. Long forms benefit
 most. It has `role="alert"` and `autofocus`, so the browser moves focus to it
 after a full page load and htmx after a swap, without extra JavaScript. It
-includes the form's own messages, so use it instead of a nameless `Error`.
+includes the form's own messages, so use it instead of a nameless `Error`. The
+[sign-up example](examples/signup/App.tsx) puts it at the top of a long form.
+
+Effect runs checks on the whole Struct only once every field is valid, so rules
+across fields, such as matching passwords, appear after the fields' own
+problems are fixed.
 
 ### Forms without an HttpFormEndpoint
 
