@@ -16,6 +16,11 @@ Effect and htmx.
   application keeps control of its markup and layout.
 - htmx helpers make it easy to return fragments, set response headers, and vary
   responses on `HX-Request`.
+- Invalid submissions come back to the handler as `Submission.Invalid`, and
+  `form.with(invalid)` renders the form again with the user's input and errors.
+- `Deferred.derive` loads slow parts of a page from their own typed endpoints.
+- `Csrf.layer` and `ErrorPage.layer` cover cross-site requests and HTML error
+  pages as middleware.
 
 The examples serve full pages to ordinary browser requests and HTML fragments
 to htmx requests. The same forms work with or without JavaScript.
