@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 
 /** Brand used to distinguish Html values from ordinary strings. */
@@ -174,3 +175,25 @@ export const schema = Schema.String.pipe(
   ),
   HttpApiSchema.asText({ contentType: "text/html; charset=utf-8" })
 )
+
+export const contentType = "text/html; charset=utf-8"
+
+export interface ResponseOptions {
+  readonly status?: number
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/**
+ * An HTML response with a chosen status, such as 422 for a rejected form or 404
+ * for a missing record. View handlers may return it in place of Html.
+ */
+export const response = (self: Html, options?: ResponseOptions): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.text(self.value, {
+    contentType,
+    ...(options?.status === undefined ? {} : { status: options.status }),
+    ...(options?.headers === undefined ? {} : { headers: options.headers })
+  })
+
+/** A 303 See Other redirect, for answering a successful form POST without JavaScript. */
+export const seeOther = (location: string): HttpServerResponse.HttpServerResponse =>
+  HttpServerResponse.redirect(location, { status: 303 })

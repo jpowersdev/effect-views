@@ -3,6 +3,8 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import type * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 
+import * as Html from "./Html.js"
+
 export const isRequest = (request: HttpServerRequest.HttpServerRequest): boolean =>
   request.headers["hx-request"]?.toLowerCase() === "true"
 
@@ -47,3 +49,22 @@ export const trigger = (
   "hx-trigger",
   detail === undefined ? event : JSON.stringify({ [event]: detail })
 )
+
+/**
+ * htmx 2 response handling that also swaps 422 responses, so a rejected form can
+ * be shown again with its errors. Other 4xx and 5xx responses are still errors.
+ */
+export const responseHandling = [
+  { code: "204", swap: false },
+  { code: "[23]..", swap: true },
+  { code: "422", swap: true },
+  { code: "[45]..", swap: false, error: true },
+  { code: "...", swap: false }
+] as const
+
+/** A meta element applying htmx configuration; defaults to responseHandling. */
+export const Config = (props: { readonly config?: Readonly<Record<string, unknown>> }): Html.Html =>
+  Html.element("meta", {
+    name: "htmx-config",
+    content: JSON.stringify(props.config ?? { responseHandling })
+  })

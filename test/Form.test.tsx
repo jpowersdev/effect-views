@@ -6,6 +6,7 @@ import * as Vitest from "vitest"
 import * as Form from "../src/Form.js"
 import * as Html from "../src/Html.js"
 import * as HttpFormEndpoint from "../src/HttpFormEndpoint.js"
+import * as Submission from "../src/Submission.js"
 
 const TodoForm = Form.make({
   id: "new-todo",
@@ -85,6 +86,67 @@ Vitest.describe("Form", () => {
         `<input id="new-contact-email" name="email" type="email">` +
       `</form>`
     )
+  })
+
+  Vitest.it("fills controls with an invalid submission's values and errors", () => {
+    const invalid = new Submission.Invalid({
+      values: { title: "Hi", notes: "Some notes", priority: "high", notify: "true", count: "x" },
+      errors: { count: ["Expected an integer"] }
+    })
+    const Filled = TodoForm.with(invalid)
+
+    Vitest.expect(Html.render(<Filled.Input name="title" />)).toBe(
+      `<input id="new-todo-title" name="title" type="text" value="Hi">`
+    )
+    Vitest.expect(Html.render(<Filled.Input name="count" type="number" aria-describedby="count-hint" />)).toBe(
+      `<input aria-invalid="true" aria-describedby="count-hint new-todo-count-error" id="new-todo-count" name="count" type="number" value="x">`
+    )
+    Vitest.expect(Html.render(<Filled.Error name="count" class="error" />)).toBe(
+      `<p class="error" id="new-todo-count-error">Expected an integer</p>`
+    )
+    Vitest.expect(Html.render(<Filled.Error name="title" />)).toBe("")
+    Vitest.expect(Html.render(<Filled.Textarea name="notes" />)).toBe(
+      `<textarea id="new-todo-notes" name="notes">Some notes</textarea>`
+    )
+    Vitest.expect(Html.render(<Filled.Checkbox name="notify" />)).toBe(
+      `<input id="new-todo-notify" name="notify" type="checkbox" value="true" checked>`
+    )
+    Vitest.expect(Html.render(
+      <Filled.Select
+        name="priority"
+        value="normal"
+        options={[{ value: "normal", label: "Normal" }, { value: "high", label: "High" }]}
+      />
+    )).toBe(
+      `<select id="new-todo-priority" name="priority">` +
+        `<option value="normal">Normal</option>` +
+        `<option value="high" selected>High</option>` +
+      `</select>`
+    )
+  })
+
+  Vitest.it("does not refill password inputs", () => {
+    const LoginForm = Form.make({
+      id: "login",
+      action: "/login",
+      payload: Schema.Struct({ password: Schema.String })
+    })
+    const Filled = LoginForm.with(new Submission.Invalid({ values: { password: "secret" }, errors: {} }))
+
+    Vitest.expect(Html.render(<Filled.Input name="password" type="password" />)).toBe(
+      `<input id="login-password" name="password" type="password">`
+    )
+  })
+
+  Vitest.it("keeps the endpoint on derived forms filled with a submission", () => {
+    const endpoint = HttpFormEndpoint.make("create", "/contacts", {
+      payload: Schema.Struct({ email: Schema.String })
+    })
+    const ContactForm = Form.derive({ id: "new-contact", endpoint })
+    const Filled = ContactForm.with(new Submission.Invalid({ values: { email: "a" }, errors: {} }))
+
+    Vitest.expect(Filled.endpoint).toBe(endpoint)
+    Vitest.expect(Html.render(<Filled.Input name="email" />)).toContain(`value="a"`)
   })
 
   Vitest.it("constrains fields and controls at compile time", () => {

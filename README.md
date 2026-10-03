@@ -77,6 +77,54 @@ server.
 
 `hx-push-url="false"` keeps the POST-only action out of browser history.
 
+## Validation errors
+
+A form endpoint's handler receives a `Submission`, which never fails to decode.
+Yielding it gives the decoded payload, or fails with `Submission.Invalid`, which
+keeps the submitted values and each field's messages. Rules the schema cannot
+express fail with the same error:
+
+```ts
+.handle("create", ({ payload, request }) =>
+  Effect.gen(function* () {
+    const { title } = yield* payload
+    if (yield* todos.exists(title)) {
+      return yield* new Submission.Invalid({
+        values: { title },
+        errors: { title: ["That is already on the list"] }
+      })
+    }
+    yield* todos.add(title)
+    return Htmx.isRequest(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
+  }).pipe(
+    Effect.catchTag("FormInvalid", (invalid) =>
+      Effect.map(todos.list, (items) =>
+        Html.response(representation(request, items, invalid), { status: 422 })))
+  ))
+```
+
+`NewTodo.with(invalid)` returns the same form components, filled in. Inputs,
+textareas, checkboxes, and selects given `options` show the submitted values
+(password inputs stay empty); controls with errors get `aria-invalid` and an
+`aria-describedby` pointing at `<NewTodo.Error name="title" />`:
+
+```tsx
+const Form = NewTodo.with(invalid)
+
+<Form.Root hx-boost="true" hx-push-url="false" hx-target="#todo-app" hx-swap="outerHTML">
+  <Form.Label name="title">What needs doing?</Form.Label>
+  <Form.Input name="title" required />
+  <Form.Error name="title" class="error" />
+  <button type="submit">Add todo</button>
+</Form.Root>
+```
+
+htmx does not swap 4xx responses by default. Put `<Htmx.Config />` in the page
+head to swap 422 responses as well.
+
+A successful POST without htmx answers with `Html.seeOther`, a 303 redirect, so
+that reloading the page does not submit the form again.
+
 ## JSX without React
 
 Components are ordinary synchronous functions returning `Html`:
@@ -143,11 +191,6 @@ export const viewsLayer = HttpApiBuilder.group(
     return handlers
       .handle("list", ({ request }) =>
         Effect.map(todos.list, (items) => representation(request, items)))
-      .handle("create", ({ payload, request }) =>
-        Effect.gen(function* () {
-          yield* todos.add(payload.title)
-          return representation(request, yield* todos.list)
-        }))
   })
 )
 ```

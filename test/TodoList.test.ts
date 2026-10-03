@@ -60,10 +60,11 @@ Vitest.describe("todo list example", () => {
         method: "POST",
         body: new URLSearchParams({ title: "Without JavaScript" })
       }))
-      Vitest.expect(nativeSubmission.status).toBe(200)
-      const nativeBody = await nativeSubmission.text()
-      Vitest.expect(nativeBody).toMatch(/^<!doctype html>/)
-      Vitest.expect(nativeBody).toContain("Without JavaScript")
+      // Post/Redirect/Get: reloading the result does not submit again.
+      Vitest.expect(nativeSubmission.status).toBe(303)
+      Vitest.expect(nativeSubmission.headers.get("location")).toBe("/")
+      const afterRedirect = await handler(new Request("http://localhost/"))
+      Vitest.expect(await afterRedirect.text()).toContain("Without JavaScript")
 
       const json = await handler(new Request("http://localhost/api/todos"))
       Vitest.expect(json.status).toBe(200)
@@ -80,17 +81,34 @@ Vitest.describe("todo list example", () => {
     }
   })
 
-  Vitest.it("rejects invalid form submissions without changing the todo list", async () => {
+  Vitest.it("shows invalid submissions again with their errors, without changing the todo list", async () => {
     const { dispose, handler } = makeApp()
 
     try {
       const before = await handler(new Request("http://localhost/api/todos"))
       const initial = await before.json()
+
       const invalid = await handler(new Request("http://localhost/todos", {
         method: "POST",
         body: new URLSearchParams({ title: "" })
       }))
-      Vitest.expect(invalid.status).toBe(400)
+      Vitest.expect(invalid.status).toBe(422)
+      Vitest.expect(invalid.headers.get("content-type")).toBe("text/html; charset=utf-8")
+      const invalidBody = await invalid.text()
+      Vitest.expect(invalidBody).toMatch(/^<!doctype html>/)
+      Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="new-todo-title-error"')
+      Vitest.expect(invalidBody).toContain('<p class="error" id="new-todo-title-error">Expected a value with a length of at least 1</p>')
+
+      const duplicate = await handler(new Request("http://localhost/todos", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: new URLSearchParams({ title: "Try Effect views" })
+      }))
+      Vitest.expect(duplicate.status).toBe(422)
+      const duplicateBody = await duplicate.text()
+      Vitest.expect(duplicateBody).toMatch(/^<main id="todo-app">/)
+      Vitest.expect(duplicateBody).toContain('value="Try Effect views"')
+      Vitest.expect(duplicateBody).toContain("That is already on the list")
 
       const after = await handler(new Request("http://localhost/api/todos"))
       Vitest.expect(await after.json()).toEqual(initial)

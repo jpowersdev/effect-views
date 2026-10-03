@@ -2,7 +2,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
+import * as ViewHtml from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
+import * as Submission from "effect-views/Submission"
 
 import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
@@ -23,8 +25,9 @@ export const apiLayer = HttpApiBuilder.group(
 
 const representation = (
   request: Parameters<typeof Htmx.isRequest>[0],
-  todos: ReadonlyArray<Todo.Todo>
-) => Htmx.isRequest(request) ? Html.app(todos) : Html.page(todos)
+  todos: ReadonlyArray<Todo.Todo>,
+  invalid?: Submission.Invalid
+) => Htmx.isRequest(request) ? Html.app(todos, invalid) : Html.page(todos, invalid)
 
 export const viewsLayer = HttpApiBuilder.group(
   RootApi.Api,
@@ -37,10 +40,22 @@ export const viewsLayer = HttpApiBuilder.group(
         Effect.map(todos.list, (items) => representation(request, items)))
       .handle("create", ({ payload, request }) =>
         Effect.gen(function* () {
-          yield* todos.add(payload.title)
-          const items = yield* todos.list
-          return representation(request, items)
-        }))
+          const { title } = yield* payload
+          if ((yield* todos.list).some((todo) => todo.title === title)) {
+            return yield* new Submission.Invalid({
+              values: { title },
+              errors: { title: ["That is already on the list"] }
+            })
+          }
+          yield* todos.add(title)
+          // Without htmx, redirect so that reloading the page does not submit again.
+          if (!Htmx.isRequest(request)) return ViewHtml.seeOther("/")
+          return Html.app(yield* todos.list)
+        }).pipe(
+          Effect.catchTag("FormInvalid", (invalid) =>
+            Effect.map(todos.list, (items) =>
+              ViewHtml.response(representation(request, items, invalid), { status: 422 })))
+        ))
   })
 )
 

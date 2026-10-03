@@ -3,6 +3,7 @@ import type * as HttpRouter from "effect/http/HttpRouter"
 import type * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
 
 import * as HttpViewEndpoint from "./HttpViewEndpoint.js"
+import * as Submission from "./Submission.js"
 
 export const TypeId = "~effect-views/HttpFormEndpoint" as const
 
@@ -44,6 +45,8 @@ export interface Options<
 
 /**
  * Creates a POST view endpoint with a URL-encoded Struct payload and Html response.
+ * The handler's payload is a Submission: yield it for the decoded value, or
+ * handle Submission.Invalid to show the form again with its errors.
  * Attaches the original Struct as metadata for Form.derive. Effect's endpoint
  * transformations (such as prefix) do not preserve this metadata.
  */
@@ -62,7 +65,7 @@ export function make<
   const { payload, ...request } = options
   const endpoint = HttpViewEndpoint.post(identifier, path, {
     ...request,
-    payload: HttpViewEndpoint.form(payload)
+    payload: HttpViewEndpoint.form(Submission.schema(payload))
   })
 
   Object.defineProperty(endpoint, TypeId, {
