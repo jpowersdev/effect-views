@@ -101,7 +101,7 @@ pnpm example:orders
 Open <http://127.0.0.1:3000>, choose order 42, and click **Cancel order**. With
 htmx, only the order article changes; without JavaScript, the browser loads a
 new page. The activity panel loads separately, about 400 ms after the page,
-through `HtmlDeferred.derive`; without JavaScript it becomes a link. Return to the
+through `View.derive`; without JavaScript it becomes a link. Return to the
 index to see the updated status. Restart the server to reset the order.
 
 Order #7 does not exist: its handler answers with a 404 page. Unknown paths,

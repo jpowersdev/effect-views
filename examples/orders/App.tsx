@@ -10,11 +10,11 @@ import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
-import * as HtmlDeferred from "effect-views/HtmlDeferred"
 import * as ErrorPage from "effect-views/ErrorPage"
 import * as Html from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
 import * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"
+import * as View from "effect-views/View"
 
 interface Order {
   readonly id: number
@@ -81,7 +81,10 @@ const orderActivity = HttpViewEndpoint.get("activity", "/orders/:orderId/activit
   params: OrderParams
 })
 
-const Activity = HtmlDeferred.derive({ endpoint: orderActivity, element: "section" })
+// Typed links and lazy placeholders for the GET views
+const Home = View.derive({ endpoint: listOrders })
+const OrderPage = View.derive({ endpoint: showOrder })
+const Activity = View.derive({ endpoint: orderActivity })
 
 export const api = HttpApi.make("Example").add(
   HttpApiGroup.make("orders")
@@ -98,11 +101,11 @@ const OrdersIndex = ({ orders }: { readonly orders: ReadonlyArray<Order> }): Htm
     <ul>
       {orders.map((order) => (
         <li>
-          <a href={`/orders/${order.id}`}>Order #{order.id}</a>
+          <OrderPage.Link params={{ orderId: order.id }}>Order #{order.id}</OrderPage.Link>
           {" — "}<strong>{order.status}</strong>
         </li>
       ))}
-      <li><a href="/orders/7">Order #7</a> (missing)</li>
+      <li><OrderPage.Link params={{ orderId: 7 }}>Order #7</OrderPage.Link> (missing)</li>
     </ul>
   </section>
 )
@@ -122,11 +125,11 @@ const OrderView = ({ order }: { readonly order: Order }): Html.Html => (
         <button type="submit">Cancel order</button>
       </form>
     )}
-    <Activity.Root params={{ orderId: order.id }} aria-busy="true">
+    <Activity.Lazy as="section" params={{ orderId: order.id }} aria-busy="true">
       <h2>Activity</h2>
       <p>Loading activity…</p>
-      <noscript><a href={Activity.url({ params: { orderId: order.id } })}>View activity</a></noscript>
-    </Activity.Root>
+      <noscript><Activity.Link params={{ orderId: order.id }}>View activity</Activity.Link></noscript>
+    </Activity.Lazy>
   </article>
 )
 
@@ -154,7 +157,7 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
       <script src="https://unpkg.com/htmx.org@2.0.8"></script>
     </head>
     <body>
-      <header><a href="/">Orders</a></header>
+      <header><Home.Link>Orders</Home.Link></header>
       <div id="errors" role="alert"></div>
       <main>{children}</main>
     </body>
@@ -169,7 +172,7 @@ const representation = (
 const NotFound = ({ orderId }: { readonly orderId: number }): Html.Html => (
   <section>
     <h1>Order #{orderId} not found</h1>
-    <p><a href="/">Back to orders</a></p>
+    <p><Home.Link>Back to orders</Home.Link></p>
   </section>
 )
 

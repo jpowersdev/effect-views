@@ -30,9 +30,9 @@
       "types": "./dist/Html.d.ts",
       "default": "./dist/Html.js"
     },
-    "./HtmlDeferred": {
-      "types": "./dist/HtmlDeferred.d.ts",
-      "default": "./dist/HtmlDeferred.js"
+    "./Htmx": {
+      "types": "./dist/Htmx.d.ts",
+      "default": "./dist/Htmx.js"
     },
     "./HttpFormEndpoint": {
       "types": "./dist/HttpFormEndpoint.d.ts",
@@ -46,9 +46,9 @@
       "types": "./dist/Submission.d.ts",
       "default": "./dist/Submission.js"
     },
-    "./Htmx": {
-      "types": "./dist/Htmx.d.ts",
-      "default": "./dist/Htmx.js"
+    "./View": {
+      "types": "./dist/View.d.ts",
+      "default": "./dist/View.js"
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",

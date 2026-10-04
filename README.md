@@ -18,7 +18,8 @@ Effect and htmx.
   responses on `HX-Request`.
 - Invalid submissions come back to the handler as `Submission.Invalid`, and
   `form.with(invalid)` renders the form again with the user's input and errors.
-- `HtmlDeferred.derive` loads slow parts of a page from their own typed endpoints.
+- `View.derive` turns a GET view endpoint into typed links, and placeholders that
+  load slow parts of a page later.
 - `Csrf.layer` and `ErrorPage.layer` cover cross-site requests and HTML error
   pages as middleware.
 
@@ -389,27 +390,37 @@ const ActivityPanel = Effect.gen(function* () {
 Compose these with `Effect.all` (optionally concurrent), recover with
 `Effect.catchTag`, and the requirements and errors stay in the types.
 
-When part of a page is slow, `HtmlDeferred.derive` puts it behind its own GET view
-endpoint and renders a placeholder that htmx replaces once the page has loaded:
+When part of a page is slow, put it behind its own GET view endpoint and load it
+after the page, with a `View`.
+
+## Links and lazy views
+
+`View.derive` does for a GET view endpoint what `Form.derive` does for a form:
+it returns typed components, with params and query checked against the
+endpoint's schemas and encoded as the server decodes them.
 
 ```tsx
 const orderActivity = HttpViewEndpoint.get("activity", "/orders/:orderId/activity", {
   params: { orderId: Schema.Int }
 })
 
-const Activity = HtmlDeferred.derive({ endpoint: orderActivity })
+const Activity = View.derive({ endpoint: orderActivity })
 
-<Activity.Root params={{ orderId: order.id }}>
+<Activity.Link params={{ orderId: 42 }}>View activity</Activity.Link>
+// <a href="/orders/42/activity">View activity</a>
+
+<Activity.Lazy params={{ orderId: 42 }}>
   <p>Loading activity…</p>
-</Activity.Root>
+</Activity.Lazy>
 // <div hx-get="/orders/42/activity" hx-trigger="load" hx-swap="outerHTML">…</div>
+
+Activity.url({ params: { orderId: 42 } }) // "/orders/42/activity"
 ```
 
-Params and query are typed by the endpoint and encoded with its schemas.
-`trigger` accepts any htmx trigger, such as `"revealed"` or `"every 30s"`, and
-`Activity.url(...)` builds the same URL for links. Deferred content needs
-JavaScript, so keep essential content in the page or link to the fragment's
-endpoint from a `<noscript>`.
+`Lazy` renders a placeholder that htmx replaces with the view. `trigger` accepts
+any htmx trigger, such as `"revealed"` or `"every 30s"`, and `as` chooses the
+element. It needs JavaScript, so keep essential content in the page, or put an
+`Activity.Link` in a `<noscript>`.
 
 ## Checks
 
