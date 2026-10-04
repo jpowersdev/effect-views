@@ -57,6 +57,7 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
 const styles = `
   .error { color: #b3261e; margin: 0.25rem 0; }
   .field--invalid input { border: 2px solid #b3261e; }
+  input:focus { outline: 3px solid #2f5bd3; outline-offset: 2px; }
 `
 
 const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
