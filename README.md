@@ -22,6 +22,10 @@ Effect and htmx.
   load slow parts of a page later.
 - `Csrf.layer` and `ErrorPage.layer` cover cross-site requests and HTML error
   pages as middleware.
+- `Component.make` keeps a component's markup and scoped CSS in one `.tsx`
+  file. Live components add actions that run on the server as HttpApi
+  endpoints, with typed state and payloads, and no JavaScript of your own in
+  the browser. `Assets.layer` serves the styles and htmx without a build step.
 
 The examples serve full pages to ordinary browser requests and HTML fragments
 to htmx requests. The same forms work with or without JavaScript.
@@ -420,6 +424,180 @@ Activity.url({ params: { orderId: 42 } }) // "/orders/42/activity"
 any htmx trigger, such as `"revealed"` or `"every 30s"`, and `as` chooses the
 element. It needs JavaScript, so keep essential content in the page, or put an
 `Activity.Link` in a `<noscript>`.
+
+## Components
+
+`Component.make` defines markup rendered inside a custom element, with styles
+scoped to it:
+
+```tsx
+import * as Component from "effect-views/Component"
+import { css } from "effect-views/Component"
+
+const Card = Component.make("app-card", {
+  style: css`
+    :scope { display: block; padding: 1rem; border: 1px solid #ddd; }
+    h2 { margin-top: 0; }
+  `,
+  render: ({ title, children }: { title: string; children: Html.Child }) => (
+    <>
+      <h2>{title}</h2>
+      {children}
+    </>
+  )
+})
+
+<Card title="Details">…</Card>
+// <app-card data-component><h2>Details</h2>…</app-card>
+```
+
+Styles are wrapped in `@scope`, so they apply inside the element, with `:scope`
+for the element itself, and stop at nested components. Editors highlight CSS in
+templates tagged `css`.
+
+## Live components
+
+A live component is rendered on the server, and its actions run on the server:
+htmx posts the component's state to an action, and swaps in the component
+rendered with the state the action returns. No JavaScript of your own runs in
+the browser, so handlers can use services, the database, and anything else on
+the server.
+
+Like an HttpApi endpoint, a live component is declared in one place and
+implemented in another. The contract holds the state and the actions:
+
+```ts
+import * as LiveAction from "effect-views/LiveAction"
+import * as LiveComponent from "effect-views/LiveComponent"
+
+export class SearchState extends Schema.Class<SearchState>("SearchState")({
+  query: Schema.String,
+  matches: Schema.Array(Todo)
+}) {}
+
+export const search = LiveAction.make("search", {
+  payload: { query: Schema.optionalKey(Schema.String) }
+})
+
+export const Search = LiveComponent.make("todo-search", { state: SearchState }).add(search)
+```
+
+The view needs only the contract, so it renders without the handlers or their
+services. Each action becomes ordinary htmx attributes: `hx-post`,
+`hx-include`, `hx-target`, and `hx-swap`. Add others, such as `hx-trigger`,
+beside them:
+
+```tsx
+export const SearchView = LiveComponent.view(Search, {
+  style: css`:scope { display: block; }`,
+  render: (state, actions) => (
+    <>
+      <input id="search" type="search" name="query" value={state.query}
+        {...actions.search()} hx-trigger="input changed delay:200ms" />
+      <ul>{state.matches.map((todo) => <li>{todo.title}</li>)}</ul>
+    </>
+  )
+})
+
+<SearchView state={new SearchState({ query: "", matches: [] })} />
+```
+
+The handlers are a layer, with the services they use provided to it. They
+return the next state, and TypeScript requires one for every action:
+
+```ts
+export const SearchHandlers = LiveComponent.handlers(SearchView, {
+  search: (_state, { query = "" }) =>
+    Effect.gen(function* () {
+      const todos = yield* Todos
+      return new SearchState({ query, matches: yield* todos.search(query) })
+    })
+}).pipe(Layer.provide(Todos.layer))
+```
+
+Actions are HttpApi endpoints. Add them to the group of the views the
+component appears in, so that the group's HttpApi middleware, such as
+authentication, applies to them, and the OpenAPI document lists them with
+those views. Then handle them in that group's handlers; TypeScript requires
+both, and the group's layer requires the component's handlers:
+
+```ts
+export const group = HttpApiGroup.make("todosViews")
+  .add(list, create)
+  .add(...LiveComponent.endpoints(Search))
+
+export const TodosViewsLayer = HttpApiBuilder.group(Api, "todosViews", (handlers) =>
+  handlers
+    .handle("list", …)
+    .handle("create", …)
+    .pipe(LiveComponent.handle(Search))
+).pipe(Layer.provide([Todos.layer, SearchHandlers]))
+```
+
+Give an action a `description` to summarize it in the OpenAPI document.
+
+- **State** is encoded with its schema and signed, in a hidden input, so the
+  server keeps nothing between requests and the browser cannot change it. A
+  problem to show the user, such as a failed search, belongs in the state.
+- **Payloads** are decoded like forms, from the inputs in the component and
+  any values given where the action is used, such as `actions.add({ by: 5 })`.
+- htmx keeps focus in an input with the same `id` after the swap, so give
+  inputs that trigger actions an `id`.
+- Actions are served at `/live/<tag>/<action>`; do not prefix their group or
+  its API. An action answers 400 when its state or payload cannot be decoded.
+- State is signed with a key chosen at startup, so nothing needs to be
+  provided. Pages rendered before a restart, or by another server, stop
+  accepting actions; to share a key, provide
+  `LiveComponent.secret(Redacted.make(...))` to `HttpRouter.serve`.
+
+### Assets
+
+`Assets.layer` builds the files when the server starts: htmx from the installed
+`htmx.org`, and one stylesheet for every component. `Assets.routes` serves them
+with names that change with their contents, cached for a year. Put
+`<Assets.Head />` in the page head, and provide `Assets.layer` to
+`HttpRouter.serve`, rather than adding it to the routes, so that error pages
+rendered by middleware can render the head too.
+
+Pass `htmx: { url }` to load htmx from elsewhere, `htmx: false` to leave it
+out, `extensions: ["sse"]` to serve htmx extensions from their `htmx-ext-<name>`
+packages, or `prefix` to serve the files from somewhere other than `/assets`.
+Components must be defined before the layer is built; rendering one defined
+later is an error.
+
+## Streaming views
+
+`HttpViewEndpoint.events` declares a GET endpoint that streams HTML fragments
+as server-sent events. Its handler returns a `Stream` of `HtmlEvent`, each an
+event name and its HTML, and `View.derive` gives it a `Subscribe` element whose
+contents htmx replaces with each event of that name:
+
+```tsx
+export const changes = HttpViewEndpoint.events("changes", "/todos/changes")
+
+const Changes = View.derive({ endpoint: changes })
+
+<Changes.Subscribe event="todos">
+  <TodoList todos={todos} />
+</Changes.Subscribe>
+// <div hx-ext="sse" sse-connect="/todos/changes" sse-swap="todos">…</div>
+```
+
+```ts
+.handle("changes", () =>
+  Effect.succeed(todos.changes.pipe(
+    Stream.map((items) => ({ event: "todos", data: <TodoList todos={items} /> }))
+  )))
+```
+
+The endpoint is an ordinary HttpApi endpoint, with the API's middleware, and
+the OpenAPI document describes it as `text/event-stream`. The stream ends when
+the browser closes the connection, such as when htmx swaps the element out.
+`Subscribe` needs htmx's sse extension: install `htmx-ext-sse` and pass
+`extensions: ["sse"]` to `Assets.layer`.
+
+A stream that starts with the current state, such as `SubscriptionRef.changes`,
+keeps pages in step when the browser reconnects after losing the connection.
 
 ## Checks
 

@@ -1,11 +1,15 @@
 /** @jsxImportSource effect-views */
 
+import * as Assets from "effect-views/Assets"
 import * as Form from "effect-views/Form"
 import * as Html from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
+import type * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"
 import type * as Submission from "effect-views/Submission"
+import * as View from "effect-views/View"
 
 import type * as Todo from "../Domain/Todo.js"
+import * as Search from "./Search.js"
 import * as Views from "./Views.js"
 
 export const NewTodo = Form.derive({
@@ -13,11 +17,19 @@ export const NewTodo = Form.derive({
   endpoint: Views.create
 })
 
+const Changes = View.derive({ endpoint: Views.changes })
+
 const TodoList = ({ todos }: { readonly todos: ReadonlyArray<Todo.Todo> }): Html.Html => (
   <ul>
     {todos.map((todo) => <li key={todo.id}>{todo.title}</li>)}
   </ul>
 )
+
+/** The list, as an event that replaces it in every open page. */
+export const listChanged = (todos: ReadonlyArray<Todo.Todo>): HttpViewEndpoint.HtmlEvent => ({
+  event: "todos",
+  data: <TodoList todos={todos} />
+})
 
 interface TodoAppProps {
   readonly todos: ReadonlyArray<Todo.Todo>
@@ -30,7 +42,11 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
   return (
     <main id="todo-app">
       <h1>Todo list</h1>
-      <TodoList todos={todos} />
+      {/* Shows todos added anywhere, such as with the CLI, as they are added */}
+      <Changes.Subscribe event="todos">
+        <TodoList todos={todos} />
+      </Changes.Subscribe>
+      <Search.View state={Views.SearchState.empty} />
       <Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
         <Form.Error role="alert" class="error" />
         <div class={Form.hasErrors("title") ? "field field--invalid" : "field"}>
@@ -63,7 +79,7 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
       <title>Effect Views Todo List</title>
       <Htmx.Config />
       <style>{Html.unsafe(styles)}</style>
-      <script src="https://unpkg.com/htmx.org@2.0.8"></script>
+      <Assets.Head />
     </head>
     <body>{children}</body>
   </html>

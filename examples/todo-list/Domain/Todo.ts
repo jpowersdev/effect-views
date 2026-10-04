@@ -3,10 +3,11 @@ import * as Schema from "effect/Schema"
 export const maxTodos = 10
 export const maxTitleLength = 80
 
+// Identifiers name schemas in the OpenAPI document
 export const Todo = Schema.Struct({
   id: Schema.Int,
   title: Schema.NonEmptyString
-})
+}).annotate({ identifier: "Todo" })
 export type Todo = typeof Todo.Type
 
 /**
@@ -20,7 +21,7 @@ export const Title = Schema.Trim.check(
 
 export const CreateTodo = Schema.Struct({
   title: Title
-})
+}).annotate({ identifier: "CreateTodo" })
 export type CreateTodo = typeof CreateTodo.Type
 
 export class DuplicateTodo extends Schema.TaggedError<DuplicateTodo>()("DuplicateTodo", {

@@ -10,6 +10,7 @@ import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
+import * as Assets from "effect-views/Assets"
 import * as Form from "effect-views/Form"
 import * as Html from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
@@ -242,7 +243,7 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
       <title>Create an account</title>
       <Htmx.Config />
       <style>{Html.unsafe(styles)}</style>
-      <script src="https://unpkg.com/htmx.org@2.0.8"></script>
+      <Assets.Head />
     </head>
     <body>{children}</body>
   </html>
@@ -283,6 +284,7 @@ const SignUpHandlers = HttpApiBuilder.group(
   })
 ).pipe(Layer.provide(AccountsLive))
 
-export const routes = HttpApiBuilder.layer(api).pipe(
-  Layer.provide(SignUpHandlers)
+export const routes = Layer.mergeAll(
+  HttpApiBuilder.layer(api).pipe(Layer.provide(SignUpHandlers)),
+  Assets.routes
 )

@@ -1,7 +1,8 @@
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
 import type * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
 import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
+import * as OpenApi from "effect/http-api/OpenApi"
 
 import * as Html from "./Html.js"
 
@@ -100,6 +101,49 @@ export function del<
   options?: WriteOptions<"DELETE", Params, Query, Payload, Headers>
 ) {
   return HttpApiEndpoint.delete(identifier, path, { ...options, success: Html.schema })
+}
+
+/**
+ * An HTML fragment sent as a server-sent event. htmx swaps it into the
+ * elements that listen for its name; see View.derive's Subscribe.
+ */
+export const HtmlEvent = Schema.Struct({
+  id: Schema.optional(Schema.String),
+  event: Schema.String,
+  data: Html.FromString
+})
+export type HtmlEvent = typeof HtmlEvent.Type
+
+/**
+ * Declares a GET endpoint that streams HTML fragments as server-sent events.
+ * Its handler returns a Stream of HtmlEvent; the connection stays open until
+ * the browser closes it.
+ *
+ * ```ts
+ * export const changes = HttpViewEndpoint.events("changes", "/todos/changes")
+ *
+ * .handle("changes", () =>
+ *   Effect.succeed(todos.changes.pipe(Stream.map((items) => ({ event: "todos", data: <TodoList todos={items} /> })))))
+ * ```
+ */
+export function events<
+  const Identifier extends string,
+  const Path extends HttpRouter.PathInput,
+  Params extends InputSchema = never,
+  Query extends InputSchema = never,
+  Headers extends InputSchema = never
+>(
+  identifier: Identifier,
+  path: Path,
+  options?: ReadOptions<Params, Query, Headers>
+) {
+  return HttpApiEndpoint.get(identifier, path, {
+    ...options,
+    success: HttpApiSchema.StreamSse({ events: HtmlEvent })
+  }).annotate(OpenApi.Override, {
+    // A label beside the operation in Scalar's reference
+    "x-badges": [{ name: "Event stream", position: "before" }]
+  })
 }
 
 /** Marks a schema as an application/x-www-form-urlencoded request payload. */

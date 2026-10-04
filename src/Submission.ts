@@ -252,7 +252,9 @@ export const reject = <Fields extends Schema.Struct.Fields>(
 ): Invalid =>
   new Invalid({ values: Schema.encodeSync(stringTreeCodec(schema))(value) as Values, ...messages })
 
-const RawValues = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)]))
+const RawValues = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])).annotate({
+  description: "The values of a submitted form, by field name"
+})
 
 /**
  * A URL-encoded payload schema that never fails to decode: it produces a
@@ -266,8 +268,8 @@ export const schema = <Fields extends Schema.Struct.Fields>(
   type Type = Schema.Struct<Fields>["Type"]
   const encode = Schema.encodeSync(stringTreeCodec(struct))
   const isSubmission = (input: unknown): input is Submission<Type> => Exit.isExit(input)
+  // Unnamed, so the OpenAPI document does not list the generic values as a model; HttpFormEndpoint describes each form's fields
   const SubmissionDeclaration = Schema.declare<Submission<Type>>(isSubmission, {
-    identifier: "Submission",
     description: "A decoded form submission, or the values and errors of an invalid one"
   })
 

@@ -162,17 +162,24 @@ const HtmlDeclaration = Schema.declare<Html>(isHtml, {
 })
 
 /**
- * Encodes Html as a text/html response. Decoding trusts the input string as raw
- * markup, just like unsafe; it does not escape or sanitize it.
+ * Encodes Html as its markup. Decoding trusts the input string as raw markup,
+ * just like unsafe; it does not escape or sanitize it.
  */
-export const schema = Schema.String.pipe(
+export const FromString = Schema.String.annotate({
+  identifier: "Html",
+  description: "HTML markup"
+}).pipe(
   Schema.decodeTo(
     HtmlDeclaration,
     SchemaTransformation.transform({
       decode: unsafe,
       encode: render
     })
-  ),
+  )
+)
+
+/** Encodes Html as a text/html response; see FromString. */
+export const schema = FromString.pipe(
   HttpApiSchema.asText({ contentType: "text/html; charset=utf-8" })
 )
 

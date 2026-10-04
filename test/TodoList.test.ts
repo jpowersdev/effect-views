@@ -1,29 +1,72 @@
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
+import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Etag from "effect/http/Etag"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpApiClient from "effect/http-api/HttpApiClient"
 import * as Vitest from "vitest"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import * as DataApi from "../examples/todo-list/DataApi.js"
 import * as Http from "../examples/todo-list/Http.js"
 
 const makeApp = (filename = ":memory:") => HttpRouter.toWebHandler(
-  Http.routes.pipe(
+  Http.Routes.pipe(
     Layer.provide(Layer.mergeAll(
       NodeServices.layer,
       NodeHttpPlatform.layer,
       Etag.layer,
-      SqliteClient.layer({ filename })
+      SqliteClient.layer({ filename }),
+      Http.AssetsLayer
     ))
   ),
   { disableLogger: true }
 )
 
 Vitest.describe("todo list example", () => {
+  Vitest.it("streams the list to the page when the JSON API, as the CLI uses it, adds a todo", async () => {
+    const { dispose, handler } = makeApp()
+
+    try {
+      const page = await (await handler(new Request("http://localhost/"))).text()
+      Vitest.expect(page).toContain(`<div hx-ext="sse" sse-connect="/todos/changes" sse-swap="todos"><ul>`)
+      Vitest.expect(page).toMatch(/<script src="\/assets\/htmx-ext-sse-[0-9a-f]{12}\.js" defer><\/script>/)
+
+      const events = await handler(new Request("http://localhost/todos/changes"))
+      Vitest.expect(events.headers.get("content-type")).toBe("text/event-stream")
+      const reader = events.body!.getReader()
+      const nextEvent = async () => new TextDecoder().decode((await reader.read()).value)
+
+      // The current list, when the page connects
+      Vitest.expect(await nextEvent()).toMatch(/^event: todos\ndata: <ul><li>Try Effect views<\/li>/)
+
+      // The CLI's typed client, sending its requests to the app in this process
+      const outcome = await Effect.runPromise(Effect.gen(function* () {
+        const { todosApi } = yield* HttpApiClient.make(DataApi.Api, { baseUrl: "http://localhost" })
+        const added = yield* todosApi.create({ payload: { title: "Added from the terminal" } })
+        const duplicate = yield* Effect.flip(todosApi.create({ payload: { title: "Added from the terminal" } }))
+        return { added, duplicate: duplicate._tag }
+      }).pipe(
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provideService(FetchHttpClient.Fetch, ((input: RequestInfo | URL, init?: RequestInit) =>
+          handler(new Request(input, init))) as typeof fetch)
+      ))
+      Vitest.expect(outcome.added.title).toBe("Added from the terminal")
+      Vitest.expect(outcome.duplicate).toBe("DuplicateTodo")
+
+      // And the list again, with the new todo
+      Vitest.expect(await nextEvent()).toContain("<li>Added from the terminal</li></ul>")
+      await reader.cancel()
+    } finally {
+      await dispose()
+    }
+  })
+
   Vitest.it("serves pages and fragments and shares form submissions with the JSON API", async () => {
     const { dispose, handler } = makeApp()
 

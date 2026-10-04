@@ -17,8 +17,8 @@ State is shared across browser sessions.
 pnpm example:todo
 ```
 
-Open <http://127.0.0.1:3000> and add a todo. With htmx loaded from the CDN, the
-form updates the todo section without navigating. Disable JavaScript and reload
+Open <http://127.0.0.1:3000> and add a todo. With htmx, served by
+`Assets.layer`, the form updates the todo section without navigating. Disable JavaScript and reload
 to try the same form: it redirects back to the list, so reloading does not add
 the todo twice.
 
@@ -32,17 +32,55 @@ over.
 `Form.derive` uses the endpoint's path as the form action and its payload schema
 to constrain control names. Labels and layout are written by hand.
 
+Type in "Find a todo" to search the list. It is a live component: each search
+runs on the server, with the same Todos service as the handlers, and htmx swaps
+in the results. Its contract is in [`Todos/Views.ts`](todo-list/Todos/Views.ts),
+its markup in [`Todos/Search.tsx`](todo-list/Todos/Search.tsx), and its handler
+in [`Todos/Http.ts`](todo-list/Todos/Http.ts); its action is an endpoint
+in the same group as the todo pages.
+
+### Use the JSON API from the terminal
+
+The same todos are available as JSON at `/api/todos`, and the example comes
+with a command-line client for them. With the server running, open a second
+terminal:
+
+```sh
+pnpm -s example:todo:cli list
+pnpm -s example:todo:cli add "Water the plants"
+```
+
+The page in your browser shows the new todo as soon as it is added, without
+reloading. The list subscribes to a [stream of server-sent
+events](todo-list/Todos/Views.ts): the server sends the list when the page
+connects, and again each time any client adds a todo, and htmx swaps it in.
+Open the page in two windows and add a todo in one to see it arrive in the
+other.
+
+The [CLI](todo-list/cli.ts) uses a client that `HttpApiClient` derives from the
+API's contract, so its requests and responses are typed with the schemas the
+server uses. Adding a title that is already on the list fails with the same
+`DuplicateTodo` error that the form shows as a message, and an empty title is
+rejected, with the schema's message, before anything is sent. Set `PORT` or
+`TODOS_URL` to reach a server elsewhere.
+
+The API's OpenAPI document is at <http://127.0.0.1:3000/openapi.json>, with a
+reference page at <http://127.0.0.1:3000/docs> that lists the pages, fragments,
+and live components under "Views", and the JSON under "API".
+
 ### Read the code
 
 1. [`todo-list/Domain/Todo.ts`](todo-list/Domain/Todo.ts) defines the data schemas.
 2. [`todo-list/Todos/Views.ts`](todo-list/Todos/Views.ts) declares the HTML endpoints.
-3. [`todo-list/Todos/Html.tsx`](todo-list/Todos/Html.tsx) derives the form and renders
-   either the app fragment or a document containing it.
+3. [`todo-list/Todos/Html.tsx`](todo-list/Todos/Html.tsx) derives the form, defines
+   the search, and renders either the app fragment or a document
+   containing it.
 4. [`todo-list/Todos/Http.ts`](todo-list/Todos/Http.ts) implements HTML and JSON
    handlers using the same [domain service](todo-list/Todos.ts), which stores
    todos with Effect SQL.
 5. [`todo-list/RootApi.ts`](todo-list/RootApi.ts) combines the HTML and JSON
    contracts; [`todo-list/Http.ts`](todo-list/Http.ts) assembles the server.
+6. [`todo-list/cli.ts`](todo-list/cli.ts) uses the JSON API from the terminal.
 
 ### Make requests with curl
 

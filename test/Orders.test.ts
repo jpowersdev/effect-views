@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer"
 import * as Vitest from "vitest"
 
 import * as App from "../examples/orders/App.js"
+import * as Assets from "../src/Assets.js"
 import * as Csrf from "../src/Csrf.js"
 import * as Htmx from "../src/Htmx.js"
 
@@ -16,7 +17,8 @@ Vitest.describe("orders example", () => {
         Layer.provide(Layer.mergeAll(
           NodeServices.layer,
           NodeHttpPlatform.layer,
-          Etag.layer
+          Etag.layer,
+          Assets.layer()
         ))
       ),
       App.errorPages,

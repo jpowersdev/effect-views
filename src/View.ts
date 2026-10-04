@@ -46,6 +46,18 @@ export type LazyProps<Endpoint extends EndpointLike> =
     readonly swap?: string
   }
 
+export type SubscribeProps<Endpoint extends EndpointLike> =
+  & NativeAttributes<"hx-ext" | "sse-connect" | "sse-swap">
+  & Request<Endpoint>
+  & {
+    /** The name of the events whose HTML replaces the element's contents, or several, separated by commas. */
+    readonly event: string
+    /** The element. Defaults to "div". */
+    readonly as?: string
+    /** Shown until the first event arrives, and kept if none does. */
+    readonly children?: Html.Child
+  }
+
 export interface DeriveConfig<Endpoint extends EndpointLike> {
   readonly endpoint: Endpoint
 }
@@ -61,6 +73,12 @@ export interface View<Endpoint extends EndpointLike> {
    * when its trigger fires. It only loads when JavaScript is available.
    */
   readonly Lazy: (props: LazyProps<Endpoint>) => Html.Html
+  /**
+   * An element whose contents htmx replaces with the HTML of each event the
+   * view streams, for endpoints declared with HttpViewEndpoint.events. It
+   * needs htmx's sse extension; see Assets.Options.
+   */
+  readonly Subscribe: (props: SubscribeProps<Endpoint>) => Html.Html
 }
 
 /**
@@ -97,5 +115,17 @@ export const derive = <const Endpoint extends EndpointLike>(config: DeriveConfig
     })
   }
 
-  return Object.freeze({ endpoint, url, Link, Lazy })
+  const Subscribe = (props: SubscribeProps<Endpoint>): Html.Html => {
+    const { as = "div", children, event, params, query, ...attributes } =
+      props as SubscribeProps<Endpoint> & WithRequest
+    return Html.element(as, {
+      ...attributes,
+      "hx-ext": "sse",
+      "sse-connect": build({ params, query }),
+      "sse-swap": event,
+      children
+    })
+  }
+
+  return Object.freeze({ endpoint, url, Link, Lazy, Subscribe })
 }
