@@ -167,24 +167,26 @@ age: Schema.Int.check(Schema.isGreaterThanOrEqualTo(13))
 
 ### Rules across fields
 
-Rules compare fields. Key each by the field whose message it reports, or `form`
-for the form as a whole, and return `true` or a message:
+Rules compare fields. Each lists the fields it reads and returns `true`, a
+message for the form, or a message for one field:
 
 ```ts
 const signUp = HttpFormEndpoint.make("signUp", "/sign-up", {
   payload: SignUp,
-  rules: {
-    confirmation: (s) => s.password === s.confirmation || "The passwords do not match",
-    form: (s) => s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over"
-  }
+  rules: (rule) => [
+    rule(["password", "confirmation"], (s) =>
+      s.password === s.confirmation || { field: "confirmation", message: "The passwords do not match" }),
+    rule(["age", "plan"], (s) =>
+      s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over")
+  ]
 })
 ```
 
-A rule runs as soon as the fields it reads are valid, so its message appears
-alongside the other fields' messages instead of after they are fixed. While a
-field it reads is invalid, the rule is skipped: there is no "The passwords do
-not match" next to "Use at least 12 characters". `Form.make` and
-`Submission.schema` take `rules` too.
+A rule receives only the fields it lists, decoded, and runs as soon as they are
+valid, so its message appears alongside the other fields' messages instead of
+after they are fixed. While any of them is invalid, the rule is skipped: there
+is no "The passwords do not match" next to "Use at least 12 characters".
+`Form.make` and `Submission.schema` take `rules` too.
 
 Checks on the whole Struct, with `.check`, still work and become form errors,
 but Effect runs them only once every field is valid. Keep them for rules the

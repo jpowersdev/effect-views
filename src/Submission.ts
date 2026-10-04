@@ -95,23 +95,46 @@ const withUncheckedBooleans = <Fields extends Schema.Struct.Fields>(
 }
 
 /**
- * A rule about decoded values: true when they are acceptable, or a message.
- * Write rules with `||`, as in `s.password === s.confirmation || "The passwords do not match"`.
+ * What a rule returns: true (or undefined) when the values are acceptable, a
+ * message for the form as a whole, or a message for one field.
  */
-export type Rule<A> = (values: A) => boolean | string | undefined
+export type Outcome<A> =
+  | true
+  | undefined
+  | string
+  | { readonly field: Extract<keyof A, string>; readonly message: string }
+
+/** A rule about some fields of a form, created with the builder given to Rules. */
+export interface Rule<A> {
+  readonly fields: ReadonlyArray<string>
+  readonly check: (values: never) => Outcome<A>
+}
+
+export interface RuleBuilder<A> {
+  /**
+   * A rule reading the listed fields, which it receives decoded. It runs once
+   * all of them are valid, even if other fields are not, and is skipped while
+   * any of them is invalid.
+   */
+  <const Names extends Extract<keyof A, string>>(
+    fields: ReadonlyArray<Names>,
+    check: (values: Pick<A, Names>) => Outcome<A>
+  ): Rule<A>
+}
 
 /**
- * Rules keyed by the field whose message they report, or `form` for the form as
- * a whole. A rule runs once the fields it reads have decoded, even if other
- * fields are invalid, so its message appears alongside theirs. It is skipped
- * while any field it reads is invalid.
+ * Rules across fields, such as matching passwords:
+ *
+ * ```ts
+ * rules: (rule) => [
+ *   rule(["password", "confirmation"], (s) =>
+ *     s.password === s.confirmation || { field: "confirmation", message: "The passwords do not match" })
+ * ]
+ * ```
  */
-export type Rules<A> =
-  & { readonly [Name in Extract<keyof A, string>]?: Rule<A> }
-  & { readonly form?: Rule<A> }
+export type Rules<A> = (rule: RuleBuilder<A>) => ReadonlyArray<Rule<A>>
 
-// Thrown when a rule reads a field that did not decode
-const skip = Symbol("effect-views/Submission/skip")
+const ruleBuilder: RuleBuilder<any> = (fields, check) => ({ fields, check: check as Rule<any>["check"] })
 
 const runRules = <A>(
   rules: Rules<A>,
@@ -119,20 +142,13 @@ const runRules = <A>(
   failed: ReadonlySet<string>,
   report: (name: string | undefined, message: string) => void
 ) => {
-  const view = new Proxy(decoded, {
-    get: (target, key) => {
-      if (typeof key === "string" && failed.has(key)) throw skip
-      return Reflect.get(target, key)
-    }
-  }) as A
-  for (const [name, rule] of Object.entries(rules) as Array<[string, Rule<A> | undefined]>) {
-    if (rule === undefined) continue
-    try {
-      const outcome = rule(view)
-      if (typeof outcome === "string") report(name === "form" ? undefined : name, outcome)
-    } catch (error) {
-      if (error !== skip) throw error
-    }
+  for (const { check, fields } of rules(ruleBuilder)) {
+    if (fields.some((name) => failed.has(name))) continue
+    const values: Record<string, unknown> = {}
+    for (const name of fields) if (Object.hasOwn(decoded, name)) values[name] = decoded[name]
+    const outcome = (check as (values: Record<string, unknown>) => Outcome<A>)(values)
+    if (typeof outcome === "string") report(undefined, outcome)
+    else if (typeof outcome === "object") report(outcome.field, outcome.message)
   }
 }
 
@@ -164,7 +180,7 @@ const decodeFields = <Fields extends Schema.Struct.Fields>(schema: Schema.Struct
  *   for a number.
  * - Issues without a field, such as those from a check on the whole Struct,
  *   become form errors.
- * - Rules run once the fields they read have decoded; see Rules.
+ * - Rules run once the fields they list have decoded; see Rules.
  */
 export const decode = <Fields extends Schema.Struct.Fields>(
   schema: Schema.Struct<Fields>,

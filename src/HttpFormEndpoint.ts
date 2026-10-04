@@ -90,7 +90,8 @@ export const isHttpFormEndpoint = (value: unknown): value is Any =>
 
 export const getRules = <Endpoint extends Any>(
   endpoint: Endpoint
-): Submission.Rules<Schema.Struct<Fields<Endpoint>>["Type"]> | undefined => endpoint[TypeId].rules
+): Submission.Rules<Schema.Struct<Fields<Endpoint>>["Type"]> | undefined =>
+  endpoint[TypeId].rules as Submission.Rules<Schema.Struct<Fields<Endpoint>>["Type"]> | undefined
 
 export const getPayload = <Endpoint extends Any>(
   endpoint: Endpoint

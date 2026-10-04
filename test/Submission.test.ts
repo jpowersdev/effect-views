@@ -103,18 +103,20 @@ Vitest.describe("Submission", () => {
       guests: Schema.Int,
       promo: Schema.optionalKey(Schema.String)
     })
-    const rules: Submission.Rules<typeof Booking.Type> = {
-      guests: (s) => s.guests <= s.nights * 4 || "At most four guests per night",
-      form: (s) => s.promo !== "SUMMER" || s.nights >= 3 || "SUMMER needs a stay of three nights or more"
-    }
+    const rules: Submission.Rules<typeof Booking.Type> = (rule) => [
+      rule(["guests", "nights"], (s) =>
+        s.guests <= s.nights * 4 || { field: "guests", message: "At most four guests per night" }),
+      rule(["promo", "nights"], (s) =>
+        s.promo !== "SUMMER" || s.nights >= 3 || "SUMMER needs a stay of three nights or more")
+    ]
 
-    Vitest.it("report alongside other fields' messages once the fields they read are valid", async () => {
+    Vitest.it("report alongside other fields' messages once the fields they list are valid", async () => {
       const error = await invalid(Submission.decode(Booking, { name: "", nights: "1", guests: "9", promo: "SUMMER" }, rules))
       Vitest.expect(error.errors).toEqual({ name: ["Required"], guests: ["At most four guests per night"] })
       Vitest.expect(error.formErrors).toEqual(["SUMMER needs a stay of three nights or more"])
     })
 
-    Vitest.it("are skipped while a field they read is invalid", async () => {
+    Vitest.it("are skipped while a field they list is invalid", async () => {
       const error = await invalid(Submission.decode(Booking, { name: "Ada", nights: "many", guests: "9", promo: "SUMMER" }, rules))
       Vitest.expect(error.errors).toEqual({ nights: ["Expected a string representing a finite number"] })
       Vitest.expect(error.formErrors).toEqual([])
@@ -130,10 +132,16 @@ Vitest.describe("Submission", () => {
       Vitest.expect(error.errors).toEqual({ guests: ["At most four guests per night"] })
     })
 
-    Vitest.it("are keyed by fields or form", () => {
-      // @ts-expect-error "room" is not a field
-      const wrong: Submission.Rules<typeof Booking.Type> = { room: () => true }
-      Vitest.expect(wrong).toBeDefined()
+    Vitest.it("list and target only fields of the form, and read only the fields they list", () => {
+      const wrong: Submission.Rules<typeof Booking.Type> = (rule) => [
+        // @ts-expect-error "room" is not a field
+        rule(["room"], () => true),
+        // @ts-expect-error nights is not listed
+        rule(["guests"], (s) => s.guests <= s.nights),
+        // @ts-expect-error "room" is not a field
+        rule(["guests"], () => ({ field: "room", message: "No rooms" }))
+      ]
+      Vitest.expect(wrong).toBeTypeOf("function")
     })
   })
 

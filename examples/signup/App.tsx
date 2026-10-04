@@ -95,12 +95,14 @@ const showForm = HttpViewEndpoint.get("form", "/")
 
 const signUp = HttpFormEndpoint.make("signUp", "/sign-up", {
   payload: SignUp,
-  // Rules across fields, keyed by where their message goes. Each runs as soon as
-  // the fields it reads are valid, alongside the other fields' messages.
-  rules: {
-    confirmation: (s) => s.password === s.confirmation || "The passwords do not match",
-    form: (s) => s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over"
-  }
+  // Rules across fields. Each runs as soon as the fields it lists are valid,
+  // alongside the other fields' messages.
+  rules: (rule) => [
+    rule(["password", "confirmation"], (s) =>
+      s.password === s.confirmation || { field: "confirmation", message: "The passwords do not match" }),
+    rule(["age", "plan"], (s) =>
+      s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over")
+  ]
 })
 
 const welcome = HttpViewEndpoint.get("welcome", "/accounts/:id", {
