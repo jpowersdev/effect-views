@@ -130,7 +130,7 @@ const SignUpView = ({ invalid }: { readonly invalid?: Submission.Invalid | undef
     <main id="sign-up-page">
       <h1>Create an account</h1>
       {/* novalidate lets the server's messages, rather than the browser's, explain every problem at once */}
-      <F.Root novalidate hx-boost="true" hx-push-url="false" hx-target="#sign-up-page" hx-swap="outerHTML">
+      <F.Root novalidate hx-post={F.action} hx-target="#sign-up-page" hx-swap="outerHTML">
         <F.Summary class="summary" />
 
         <Field invalid={F.hasErrors("name")}>
@@ -248,8 +248,8 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
   </html>
 )
 
-const representation = (request: Parameters<typeof Htmx.isRequest>[0], view: Html.Html): Html.Html =>
-  Htmx.isRequest(request) ? view : <Page>{view}</Page>
+// Views on their own for htmx, inside the page for everything else
+const page = Htmx.layout(Page)
 
 // Handlers -------------------------------------------------------------------
 
@@ -259,7 +259,7 @@ const SignUpHandlers = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const accounts = yield* Accounts
     return handlers
-      .handle("form", ({ request }) => Effect.succeed(representation(request, <SignUpView />)))
+      .handle("form", ({ request }) => Effect.succeed(page(request, <SignUpView />)))
       .handle("signUp", ({ payload, request }) =>
         Effect.gen(function* () {
           const signUp = yield* payload
@@ -272,13 +272,13 @@ const SignUpHandlers = HttpApiBuilder.group(
           return Htmx.seeOther(request, `/accounts/${account.id}`)
         }).pipe(
           Effect.catchTag("FormInvalid", (invalid) =>
-            Effect.succeed(Html.response(representation(request, <SignUpView invalid={invalid} />), { status: 422 })))
+            Effect.succeed(page(request, <SignUpView invalid={invalid} />, { status: 422 })))
         ))
       .handle("welcome", ({ params, request }) =>
         accounts.get(params.id).pipe(
-          Effect.map((account) => representation(request, <WelcomeView account={account} />)),
+          Effect.map((account) => page(request, <WelcomeView account={account} />)),
           Effect.catchTag("AccountNotFound", () =>
-            Effect.succeed(Html.response(representation(request, <main><h1>No such account</h1></main>), { status: 404 })))
+            Effect.succeed(page(request, <main><h1>No such account</h1></main>, { status: 404 })))
         ))
   })
 ).pipe(Layer.provide(AccountsLive))

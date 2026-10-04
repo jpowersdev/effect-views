@@ -8,6 +8,40 @@ import * as Html from "./Html.js"
 export const isRequest = (request: HttpServerRequest.HttpServerRequest): boolean =>
   request.headers["hx-request"]?.toLowerCase() === "true"
 
+/** Whether htmx sent the request for an element with hx-boost, which expects a whole page. */
+export const isBoosted = (request: HttpServerRequest.HttpServerRequest): boolean =>
+  request.headers["hx-boosted"]?.toLowerCase() === "true"
+
+export interface LayoutOptions {
+  readonly status?: number
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+export interface Layout {
+  (request: HttpServerRequest.HttpServerRequest, view: Html.Html): Html.Html
+  (request: HttpServerRequest.HttpServerRequest, view: Html.Html, options: LayoutOptions): HttpServerResponse.HttpServerResponse
+}
+
+/**
+ * Responds with a view on its own to htmx, or inside a page for everything else:
+ * ordinary browser requests, and boosted links and forms, which swap the whole
+ * body. Pass options to set the status, such as 404 or 422.
+ *
+ * ```tsx
+ * const page = Htmx.layout(Page)
+ *
+ * page(request, <OrderView order={order} />)
+ * page(request, <NotFound />, { status: 404 })
+ * ```
+ */
+export const layout = (
+  Page: (props: { readonly children: Html.Child }) => Html.Html
+): Layout =>
+  ((request: HttpServerRequest.HttpServerRequest, view: Html.Html, options?: LayoutOptions) => {
+    const html = isRequest(request) && !isBoosted(request) ? view : Page({ children: view })
+    return options === undefined ? html : Html.response(html, options)
+  }) as Layout
+
 const appendVary = (current: string | undefined, value: string): string => {
   if (current === undefined || current.trim() === "") return value
   const values = current.split(",").map((item) => item.trim())
@@ -16,7 +50,10 @@ const appendVary = (current: string | undefined, value: string): string => {
     : `${current}, ${value}`
 }
 
-/** Adds `Vary: HX-Request` to HTML responses without disturbing existing Vary values. */
+/**
+ * Adds `Vary: HX-Request, HX-Boosted` to HTML responses without disturbing
+ * existing Vary values, since layout responds differently to each.
+ */
 export const varyLayer = HttpRouter.middleware(
   (httpEffect) =>
     Effect.map(httpEffect, (response) => {
@@ -25,7 +62,7 @@ export const varyLayer = HttpRouter.middleware(
       return HttpServerResponse.setHeader(
         response,
         "vary",
-        appendVary(response.headers["vary"], "HX-Request")
+        appendVary(appendVary(response.headers["vary"], "HX-Request"), "HX-Boosted")
       )
     }),
   { global: true }

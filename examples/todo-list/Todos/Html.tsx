@@ -31,12 +31,7 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
     <main id="todo-app">
       <h1>Todo list</h1>
       <TodoList todos={todos} />
-      <Form.Root
-        hx-boost="true"
-        hx-push-url="false"
-        hx-target="#todo-app"
-        hx-swap="outerHTML"
-      >
+      <Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
         <Form.Error role="alert" class="error" />
         <div class={Form.hasErrors("title") ? "field field--invalid" : "field"}>
           <Form.Label name="title">What needs doing?</Form.Label>
@@ -77,5 +72,5 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
 export const app = (todos: ReadonlyArray<Todo.Todo>, invalid?: Submission.Invalid): Html.Html =>
   <TodoApp todos={todos} invalid={invalid} />
 
-export const page = (todos: ReadonlyArray<Todo.Todo>, invalid?: Submission.Invalid): Html.Html =>
-  <Page><TodoApp todos={todos} invalid={invalid} /></Page>
+/** Views on their own for htmx, inside the page for everything else */
+export const page = Htmx.layout(Page)

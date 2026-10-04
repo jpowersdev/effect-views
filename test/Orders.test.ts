@@ -36,7 +36,7 @@ Vitest.describe("orders example", () => {
       const page = await handler(new Request("http://localhost/orders/42"))
       Vitest.expect(page.status).toBe(200)
       Vitest.expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
-      Vitest.expect(page.headers.get("vary")).toBe("HX-Request")
+      Vitest.expect(page.headers.get("vary")).toBe("HX-Request, HX-Boosted")
       Vitest.expect(await page.text()).toContain("<!doctype html>")
 
       const fragment = await handler(new Request("http://localhost/orders/42", {
