@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
+import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as SqlSchema from "effect/sql/SqlSchema"
 
@@ -10,6 +12,13 @@ import * as Todo from "./Domain/Todo.js"
 
 export interface Operations {
   readonly list: Effect.Effect<ReadonlyArray<Todo.Todo>>
+  /**
+   * The list now, and again each time a todo is added, by any client: the
+   * views, the JSON API, or the CLI.
+   */
+  readonly changes: Stream.Stream<ReadonlyArray<Todo.Todo>>
+  /** Todos whose titles contain the text, ignoring case. */
+  readonly search: (text: string) => Effect.Effect<ReadonlyArray<Todo.Todo>>
   readonly add: (title: string) => Effect.Effect<Todo.Todo, Todo.DuplicateTodo | Todo.TodoListFull>
 }
 
@@ -21,6 +30,8 @@ export const layer = Layer.effect(
   Todos,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
+    // Counts additions; its changes start with the current count, so a new subscriber misses nothing
+    const additions = yield* SubscriptionRef.make(0)
 
     yield* sql`
       CREATE TABLE IF NOT EXISTS todos (
@@ -44,6 +55,12 @@ export const layer = Layer.effect(
       execute: () => sql`SELECT id, title FROM todos ORDER BY id`
     })
 
+    const search = SqlSchema.findAll({
+      Request: Schema.String,
+      Result: Todo.Todo,
+      execute: (text) => sql`SELECT id, title FROM todos WHERE instr(lower(title), lower(${text})) > 0 ORDER BY id`
+    })
+
     const count = SqlSchema.findOne({
       Request: Schema.Void,
       Result: Schema.Struct({ count: Schema.Int }),
@@ -63,6 +80,8 @@ export const layer = Layer.effect(
     // Database failures are unexpected here; they become defects and 500 responses.
     return Todos.of({
       list: Effect.orDie(list(undefined)),
+      changes: SubscriptionRef.changes(additions).pipe(Stream.mapEffect(() => Effect.orDie(list(undefined)))),
+      search: (text) => Effect.orDie(search(text)),
       add: (title) =>
         Effect.gen(function* () {
           const current = yield* Effect.orDie(count(undefined))
@@ -72,7 +91,9 @@ export const layer = Layer.effect(
           return added.value
         }).pipe(
           sql.withTransaction,
-          Effect.catchTag("SqlError", Effect.die)
+          Effect.catchTag("SqlError", Effect.die),
+          // Once the todo is committed
+          Effect.tap(() => SubscriptionRef.update(additions, (count) => count + 1))
         )
     })
   })

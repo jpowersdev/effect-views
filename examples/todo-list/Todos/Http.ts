@@ -1,15 +1,20 @@
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Stream from "effect/Stream"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
 import * as ViewHtml from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
+import * as LiveComponent from "effect-views/LiveComponent"
 
 import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
 import * as Html from "./Html.js"
+import * as Search from "./Search.js"
+import * as Views from "./Views.js"
 
-export const apiLayer = HttpApiBuilder.group(
+/** The JSON API for todos. */
+export const TodosApiLayer = HttpApiBuilder.group(
   RootApi.Api,
   "todosApi",
   Effect.fnUntraced(function* (handlers) {
@@ -19,17 +24,29 @@ export const apiLayer = HttpApiBuilder.group(
       .handle("list", () => todos.list)
       .handle("create", ({ payload }) => todos.add(payload.title))
   })
-)
+).pipe(Layer.provide(Todos.layer))
 
-export const viewsLayer = HttpApiBuilder.group(
+/** The search action: the todos that match what was typed. */
+export const SearchHandlers = LiveComponent.handlers(Search.View, {
+  search: (_state, { query = "" }) =>
+    Effect.gen(function* () {
+      const todos = yield* Todos.Todos
+      const matches = query.trim() === "" ? [] : yield* todos.search(query.trim())
+      return new Views.SearchState({ query, matches })
+    })
+}).pipe(Layer.provide(Todos.layer))
+
+/** The pages, fragments, and live components for todos. */
+export const TodosViewsLayer = HttpApiBuilder.group(
   RootApi.Api,
   "todosViews",
   Effect.fnUntraced(function* (handlers) {
     const todos = yield* Todos.Todos
 
-    return handlers
+    return yield* handlers
       .handle("list", ({ request }) =>
         Effect.map(todos.list, (items) => Html.page(request, Html.app(items))))
+      .handle("changes", () => Effect.succeed(Stream.map(todos.changes, Html.listChanged)))
       .handle("create", ({ payload, request }) =>
         Effect.gen(function* () {
           const { title } = yield* payload
@@ -54,7 +71,6 @@ export const viewsLayer = HttpApiBuilder.group(
             Effect.map(todos.list, (items) =>
               Html.page(request, Html.app(items, invalid), { status: 422 })))
         ))
+      .pipe(LiveComponent.handle(Views.Search))
   })
-)
-
-export const layer = Layer.mergeAll(apiLayer, viewsLayer)
+).pipe(Layer.provide([Todos.layer, SearchHandlers]))

@@ -14,6 +14,14 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./Assets": {
+      "types": "./dist/Assets.d.ts",
+      "default": "./dist/Assets.js"
+    },
+    "./Component": {
+      "types": "./dist/Component.d.ts",
+      "default": "./dist/Component.js"
+    },
     "./Csrf": {
       "types": "./dist/Csrf.d.ts",
       "default": "./dist/Csrf.js"
@@ -41,6 +49,14 @@
     "./HttpViewEndpoint": {
       "types": "./dist/HttpViewEndpoint.d.ts",
       "default": "./dist/HttpViewEndpoint.js"
+    },
+    "./LiveAction": {
+      "types": "./dist/LiveAction.d.ts",
+      "default": "./dist/LiveAction.js"
+    },
+    "./LiveComponent": {
+      "types": "./dist/LiveComponent.d.ts",
+      "default": "./dist/LiveComponent.js"
     },
     "./Submission": {
       "types": "./dist/Submission.d.ts",
@@ -74,10 +90,21 @@
     "example:orders": "pnpm build && node dist-examples/orders/main.js",
     "example:signup": "pnpm build && node dist-examples/signup/main.js",
     "example:todo": "pnpm build && node dist-examples/todo-list/main.js",
+    "example:todo:cli": "pnpm build && node dist-examples/todo-list/cli.js",
     "test": "pnpm build:lib && vitest run"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "^4.0.0",
+    "htmx.org": "^2.0.0",
+    "htmx-ext-sse": "^2.2.0"
+  },
+  "peerDependenciesMeta": {
+    "htmx.org": {
+      "optional": true
+    },
+    "htmx-ext-sse": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0",
@@ -85,6 +112,8 @@
     "@effect/vitest": "4.0.0",
     "@types/node": "26.1.2",
     "effect": "4.0.0",
+    "htmx-ext-sse": "2.2.4",
+    "htmx.org": "2.0.8",
     "tsx": "4.23.11",
     "typescript": "7.0.2",
     "vitest": "5.0.1"

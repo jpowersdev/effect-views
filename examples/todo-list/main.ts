@@ -5,4 +5,4 @@ import * as Layer from "effect/Layer"
 
 import * as Http from "./Http.js"
 
-Layer.launch(Http.layer).pipe(NodeRuntime.runMain)
+Layer.launch(Http.HttpLayer).pipe(NodeRuntime.runMain)

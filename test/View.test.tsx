@@ -16,6 +16,10 @@ const Activity = View.derive({ endpoint: activity })
 
 const Stats = View.derive({ endpoint: HttpViewEndpoint.get("stats", "/stats") })
 
+const Orders = View.derive({
+  endpoint: HttpViewEndpoint.events("orders", "/orders/:orderId/events", { params: { orderId: Schema.Int } })
+})
+
 Vitest.describe("View", () => {
   Vitest.it("builds URLs encoded by the endpoint's schemas", () => {
     Vitest.expect(Activity.url({ params: { orderId: 7 }, query: { limit: 5 } })).toBe("/orders/7/activity?limit=5")
@@ -45,6 +49,18 @@ Vitest.describe("View", () => {
     )
   })
 
+  Vitest.it("renders elements that htmx updates with a view's events", () => {
+    Vitest.expect(Html.render(
+      <Orders.Subscribe params={{ orderId: 42 }} event="status, items" as="section" class="live">
+        <p>Waiting…</p>
+      </Orders.Subscribe>
+    )).toBe(
+      `<section class="live" hx-ext="sse" sse-connect="/orders/42/events" sse-swap="status, items">` +
+        `<p>Waiting…</p>` +
+      `</section>`
+    )
+  })
+
   Vitest.it("constrains params and query at compile time", () => {
     // Not called: invalid input would also be rejected by the schema at runtime.
     const invalid = () => [
@@ -57,7 +73,9 @@ Vitest.describe("View", () => {
       // @ts-expect-error hx-get comes from the endpoint
       <Stats.Lazy hx-get="/elsewhere" />,
       // @ts-expect-error params are required by the endpoint
-      Activity.url()
+      Activity.url(),
+      // @ts-expect-error sse-connect comes from the endpoint
+      <Orders.Subscribe params={{ orderId: 42 }} event="status" sse-connect="/elsewhere" />
     ]
 
     Vitest.expect(invalid).toBeTypeOf("function")

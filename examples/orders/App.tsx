@@ -10,6 +10,7 @@ import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
+import * as Assets from "effect-views/Assets"
 import * as ErrorPage from "effect-views/ErrorPage"
 import * as Html from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
@@ -154,7 +155,7 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Orders</title>
       <Htmx.Config errorTarget="#errors" />
-      <script src="https://unpkg.com/htmx.org@2.0.8"></script>
+      <Assets.Head />
     </head>
     <body>
       <header><Home.Link>Orders</Home.Link></header>
@@ -205,8 +206,9 @@ const OrdersHandlers = HttpApiBuilder.group(
   })
 ).pipe(Layer.provide(OrdersLive))
 
-export const routes = HttpApiBuilder.layer(api).pipe(
-  Layer.provide(OrdersHandlers)
+export const routes = Layer.mergeAll(
+  HttpApiBuilder.layer(api).pipe(Layer.provide(OrdersHandlers)),
+  Assets.routes
 )
 
 const statusMessages: Readonly<Record<number, string>> = {

@@ -6,12 +6,13 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import * as Vitest from "vitest"
 
 import * as App from "../examples/signup/App.js"
+import * as Assets from "../src/Assets.js"
 import * as Csrf from "../src/Csrf.js"
 import * as Htmx from "../src/Htmx.js"
 
 const makeApp = () => HttpRouter.toWebHandler(
   Layer.mergeAll(
-    App.routes.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer))),
+    App.routes.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer()))),
     Htmx.varyLayer,
     Csrf.layer()
   ),
