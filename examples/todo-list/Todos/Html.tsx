@@ -25,7 +25,8 @@ interface TodoAppProps {
 }
 
 const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
-  const Form = NewTodo.with(invalid)
+  // A short form: focus the invalid field rather than showing a summary
+  const Form = NewTodo.with(invalid, { focusInvalid: true })
   return (
     <main id="todo-app">
       <h1>Todo list</h1>

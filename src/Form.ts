@@ -151,7 +151,17 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
    * The same form, filled with an invalid submission's values and errors.
    * Password inputs are left empty.
    */
-  readonly with: (state: Submission.Invalid | undefined) => Form<Fields, Action>
+  readonly with: (state: Submission.Invalid | undefined, options?: WithOptions) => Form<Fields, Action>
+}
+
+export interface WithOptions {
+  /**
+   * Gives the first control with errors, in schema order, autofocus, so the
+   * browser focuses it after a full page load and htmx after a swap. Screen
+   * readers then read its label and error. For forms without a Summary, which
+   * takes focus itself.
+   */
+  readonly focusInvalid?: boolean
 }
 
 export interface DerivedForm<
@@ -160,7 +170,7 @@ export interface DerivedForm<
   Endpoint extends HttpFormEndpoint.Any
 > extends Omit<Form<Fields, Action>, "with"> {
   readonly endpoint: Endpoint
-  readonly with: (state: Submission.Invalid | undefined) => DerivedForm<Fields, Action, Endpoint>
+  readonly with: (state: Submission.Invalid | undefined, options?: WithOptions) => DerivedForm<Fields, Action, Endpoint>
 }
 
 const validateId = (id: string): void => {
@@ -200,15 +210,30 @@ export const make = <
   const errorIdFor = (name: string): string => `${fieldId(id, name)}-error`
   const formErrorId = `${id}-error`
 
-  const build = (state: Submission.Invalid | undefined): Form<Fields, Action> => {
+  const build = (state: Submission.Invalid | undefined, options?: WithOptions): Form<Fields, Action> => {
     const valueOf = (name: string) => firstValue(state?.values[name])
     const errorsOf = (name: string) => state?.errors[name] ?? []
 
-    // aria-invalid and aria-describedby for a control whose field has errors
-    const validity = (name: string, describedBy: unknown) =>
-      errorsOf(name).length === 0
-        ? { "aria-describedby": describedBy }
-        : { "aria-invalid": "true", "aria-describedby": joinIds(describedBy, errorIdFor(name)) }
+    // Fields in schema order, then any others a handler reported
+    const fieldsWithErrors = (): ReadonlyArray<string> => {
+      const names = Object.keys(state?.errors ?? {}).filter((name) => errorsOf(name).length > 0)
+      const order = Object.keys(schema.fields)
+      return [...order.filter((name) => names.includes(name)), ...names.filter((name) => !order.includes(name))]
+    }
+
+    const focusTarget = options?.focusInvalid === true ? fieldsWithErrors()[0] : undefined
+
+    // aria-invalid and aria-describedby for a control whose field has errors, and
+    // autofocus for the first of them when asked, unless the control sets its own
+    const validity = (name: string, props: Html.Attributes) => {
+      const describedBy = props["aria-describedby"]
+      if (errorsOf(name).length === 0) return { "aria-describedby": describedBy }
+      return {
+        "aria-invalid": "true",
+        "aria-describedby": joinIds(describedBy, errorIdFor(name)),
+        ...(name === focusTarget && !Object.hasOwn(props, "autofocus") ? { autofocus: true } : {})
+      }
+    }
 
     const Root = (props: RootProps): Html.Html => {
       const { "aria-describedby": describedBy, children, ...attributes } = props
@@ -229,11 +254,11 @@ export const make = <
     }
 
     const Input = <Name extends InputFieldName<Fields>>(props: InputProps<Fields, Name>): Html.Html => {
-      const { "aria-describedby": describedBy, name, type = "text", value, ...attributes } = props
+      const { name, type = "text", value, ...attributes } = props
       const submitted = type === "password" ? undefined : valueOf(name)
       return Html.element("input", {
         ...attributes,
-        ...validity(name, describedBy),
+        ...validity(name, props),
         id: idFor(name),
         name,
         type,
@@ -242,11 +267,11 @@ export const make = <
     }
 
     const Textarea = <Name extends TextFieldName<Fields>>(props: TextareaProps<Name>): Html.Html => {
-      const { "aria-describedby": describedBy, children, name, ...attributes } = props
+      const { children, name, ...attributes } = props
       const submitted = valueOf(name)
       return Html.element("textarea", {
         ...attributes,
-        ...validity(name, describedBy),
+        ...validity(name, props),
         id: idFor(name),
         name,
         children: submitted ?? children
@@ -254,10 +279,10 @@ export const make = <
     }
 
     const Checkbox = <Name extends CheckboxFieldName<Fields>>(props: CheckboxProps<Name>): Html.Html => {
-      const { "aria-describedby": describedBy, checked, name, ...attributes } = props
+      const { checked, name, ...attributes } = props
       return Html.element("input", {
         ...attributes,
-        ...validity(name, describedBy),
+        ...validity(name, props),
         id: idFor(name),
         name,
         type: "checkbox",
@@ -267,11 +292,11 @@ export const make = <
     }
 
     const Select = <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>): Html.Html => {
-      const { "aria-describedby": describedBy, children, name, options, value, ...attributes } = props
+      const { children, name, options, value, ...attributes } = props
       const selected = valueOf(name) ?? value
       return Html.element("select", {
         ...attributes,
-        ...validity(name, describedBy),
+        ...validity(name, props),
         id: idFor(name),
         name,
         children: options === undefined ? children : options.map((option) =>
@@ -289,13 +314,6 @@ export const make = <
       name === undefined ? state?.formErrors ?? [] : errorsOf(name)
 
     const hasErrors = <Name extends FieldName<Fields>>(name?: Name): boolean => messages(name).length > 0
-
-    // Fields in schema order, then any others a handler reported
-    const fieldsWithErrors = (): ReadonlyArray<string> => {
-      const names = Object.keys(state?.errors ?? {}).filter((name) => errorsOf(name).length > 0)
-      const order = Object.keys(schema.fields)
-      return [...order.filter((name) => names.includes(name)), ...names.filter((name) => !order.includes(name))]
-    }
 
     const invalid = hasErrors() || fieldsWithErrors().length > 0
 
@@ -381,7 +399,7 @@ export const derive = <const Endpoint extends HttpFormEndpoint.Any>(
     Object.freeze({
       ...bound,
       endpoint,
-      with: (state: Submission.Invalid | undefined) => bind(bound.with(state))
+      with: (state: Submission.Invalid | undefined, options?: WithOptions) => bind(bound.with(state, options))
     })
 
   return bind(form)

@@ -219,6 +219,11 @@ available for anything else:
 `Form.messages(name)` returns a field's messages, and without a name, the
 form's own. `Form.invalid` tells whether there are any messages at all.
 
+Short forms often need no summary. `NewTodo.with(invalid, { focusInvalid: true })`
+gives the first invalid control `autofocus`, so the browser focuses it after a
+full page load and htmx after a swap, and a screen reader reads its label and
+error.
+
 `<Form.Summary />` lists every message at the top of the form: the form's own,
 then each field's in schema order, linking to its control. Long forms benefit
 most. It has `role="alert"` and `autofocus`, so the browser moves focus to it

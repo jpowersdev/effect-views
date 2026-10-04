@@ -109,7 +109,7 @@ Vitest.describe("Form", () => {
       `<input id="new-todo-title" name="title" type="text" value="Hi">`
     )
     Vitest.expect(Html.render(<Filled.Input name="count" type="number" aria-describedby="count-hint" />)).toBe(
-      `<input aria-invalid="true" aria-describedby="count-hint new-todo-count-error" id="new-todo-count" name="count" type="number" value="x">`
+      `<input aria-describedby="count-hint new-todo-count-error" aria-invalid="true" id="new-todo-count" name="count" type="number" value="x">`
     )
     Vitest.expect(Html.render(<Filled.Error name="count" class="error" />)).toBe(
       `<p class="error" id="new-todo-count-error">Expected an integer</p>`
@@ -264,6 +264,29 @@ Vitest.describe("Form", () => {
     } finally {
       await dispose()
     }
+  })
+
+  Vitest.it("focuses the first invalid control in schema order when asked", () => {
+    const invalid = new Submission.Invalid({
+      values: {},
+      errors: { count: ["Expected an integer"], notes: ["Too long"] }
+    })
+    const view = (Filled: typeof TodoForm) => Html.render(
+      <Filled.Root>
+        <Filled.Input name="title" />
+        <Filled.Textarea name="notes" />
+        <Filled.Input name="count" type="number" />
+      </Filled.Root>
+    )
+
+    const focused = view(TodoForm.with(invalid, { focusInvalid: true }))
+    Vitest.expect(focused).toContain(`<textarea aria-invalid="true" aria-describedby="new-todo-notes-error" autofocus id="new-todo-notes"`)
+    Vitest.expect(focused.match(/autofocus/g)).toHaveLength(1)
+    Vitest.expect(view(TodoForm.with(invalid))).not.toContain("autofocus")
+
+    // A control's own autofocus wins
+    const Filled = TodoForm.with(invalid, { focusInvalid: true })
+    Vitest.expect(Html.render(<Filled.Textarea name="notes" autofocus={false} />)).not.toContain("autofocus")
   })
 
   Vitest.it("does not refill password inputs", () => {

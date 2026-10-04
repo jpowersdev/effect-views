@@ -101,7 +101,7 @@ Vitest.describe("todo list example", () => {
       Vitest.expect(invalid.headers.get("content-type")).toBe("text/html; charset=utf-8")
       const invalidBody = await invalid.text()
       Vitest.expect(invalidBody).toMatch(/^<!doctype html>/)
-      Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="new-todo-title-error"')
+      Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="new-todo-title-error" autofocus')
       Vitest.expect(invalidBody).toContain('<p class="error" id="new-todo-title-error">Write what needs doing</p>')
 
       const blank = await handler(new Request("http://localhost/todos", {
