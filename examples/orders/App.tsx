@@ -216,9 +216,9 @@ const statusMessages: Readonly<Record<number, string>> = {
 }
 
 /** Pages for unexpected failures and unknown routes; fragments for htmx. */
-export const errorPages = ErrorPage.layer(({ htmx, status }) => {
+export const errorPages = ErrorPage.layer(({ fragment, status }) => {
   const message = statusMessages[status] ?? "Something went wrong. Please try again."
-  return htmx
+  return fragment
     ? <p>{message}</p>
     : <Page><h1>{status === 404 ? "Not found" : "Error"}</h1><p>{message}</p></Page>
 })

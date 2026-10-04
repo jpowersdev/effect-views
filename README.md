@@ -110,7 +110,7 @@ error, encoding the decoded value back into the form's values:
           }))
       })
     )
-    return Htmx.isRequest(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
+    return Htmx.wantsFragment(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
   }).pipe(
     Effect.catchTag("FormInvalid", (invalid) =>
       Effect.map(todos.list, (items) =>
@@ -139,10 +139,11 @@ const Form = NewTodo.with(invalid)
 htmx does not swap 4xx responses by default. Put `<Htmx.Config />` in the page
 head to swap 422 responses as well.
 
-A successful POST without htmx answers with `Html.seeOther`, a 303 redirect, so
-that reloading the page does not submit the form again. `Htmx.seeOther(request,
-location)` does the same for both: a 303 for the browser, or `HX-Location` for
-htmx, which loads the page and pushes its URL.
+A successful POST that expects a page answers with `Html.seeOther`, a 303
+redirect, so that reloading the page does not submit the form again.
+`Htmx.seeOther(request, location)` covers htmx too: a 303 for ordinary and
+boosted requests, which htmx follows, and `HX-Redirect` for other htmx
+requests, so the browser loads the whole page.
 
 ### Writing messages
 
@@ -316,7 +317,8 @@ const page = Htmx.layout(Page)
 
 `page(request, view)` returns the view on its own for htmx requests, and inside
 `Page` for ordinary requests and for boosted links and forms, which swap the
-whole body. `page(request, view, { status: 404 })` does the same with a status.
+whole body. `Htmx.wantsFragment(request)` makes the same decision for your own
+code. `page(request, view, { status: 404 })` does the same with a status.
 Use `hx-post` or `hx-get`, not `hx-boost`, for elements that swap a fragment.
 
 `Htmx.varyLayer` adds `Vary: HX-Request, HX-Boosted` to HTML responses, and
@@ -344,8 +346,8 @@ the CSRF 403. It keeps the status, logs failures that would have been a 500, and
 leaves requests that do not accept HTML, such as JSON API calls, alone:
 
 ```tsx
-const errorPages = ErrorPage.layer(({ htmx, status }) =>
-  htmx ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
+const errorPages = ErrorPage.layer(({ fragment, status }) =>
+  fragment ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
 )
 ```
 

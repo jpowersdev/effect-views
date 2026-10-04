@@ -46,8 +46,8 @@ export const viewsLayer = HttpApiBuilder.group(
                 }))
             })
           )
-          // Without htmx, redirect so that reloading the page does not submit again.
-          if (!Htmx.isRequest(request)) return ViewHtml.seeOther("/")
+          // When a page is expected, redirect so that reloading it does not submit again.
+          if (!Htmx.wantsFragment(request)) return ViewHtml.seeOther("/")
           return Html.app(yield* todos.list)
         }).pipe(
           Effect.catchTag("FormInvalid", (invalid) =>

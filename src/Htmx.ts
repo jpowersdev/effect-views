@@ -12,6 +12,13 @@ export const isRequest = (request: HttpServerRequest.HttpServerRequest): boolean
 export const isBoosted = (request: HttpServerRequest.HttpServerRequest): boolean =>
   request.headers["hx-boosted"]?.toLowerCase() === "true"
 
+/**
+ * Whether to respond with just a fragment: htmx sent the request, and it is not
+ * boosted. Ordinary requests and boosted links and forms expect a whole page.
+ */
+export const wantsFragment = (request: HttpServerRequest.HttpServerRequest): boolean =>
+  isRequest(request) && !isBoosted(request)
+
 export interface LayoutOptions {
   readonly status?: number
   readonly headers?: Readonly<Record<string, string>>
@@ -38,7 +45,7 @@ export const layout = (
   Page: (props: { readonly children: Html.Child }) => Html.Html
 ): Layout =>
   ((request: HttpServerRequest.HttpServerRequest, view: Html.Html, options?: LayoutOptions) => {
-    const html = isRequest(request) && !isBoosted(request) ? view : Page({ children: view })
+    const html = wantsFragment(request) ? view : Page({ children: view })
     return options === undefined ? html : Html.response(html, options)
   }) as Layout
 
@@ -78,12 +85,14 @@ export const redirect = (response: HttpServerResponse.HttpServerResponse, locati
   HttpServerResponse.setHeader(response, "hx-redirect", location)
 
 /**
- * Sends the browser to another page after a successful POST: a 303 redirect,
- * or for htmx, `HX-Location`, which loads the page with htmx and pushes its URL.
+ * Sends the browser to another page after a successful POST. Ordinary and
+ * boosted requests get a 303 redirect, which htmx follows for a boosted request.
+ * Other htmx requests get `HX-Redirect`, so the browser loads the whole page
+ * rather than htmx swapping it into the element that made the request.
  */
 export const seeOther = (request: HttpServerRequest.HttpServerRequest, location: string) =>
-  isRequest(request)
-    ? HttpServerResponse.empty({ status: 204, headers: { "hx-location": location } })
+  wantsFragment(request)
+    ? HttpServerResponse.empty({ status: 204, headers: { "hx-redirect": location } })
     : Html.seeOther(location)
 
 export const trigger = (
