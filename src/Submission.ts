@@ -95,6 +95,62 @@ const withUncheckedBooleans = <Fields extends Schema.Struct.Fields>(
 }
 
 /**
+ * A rule about decoded values: true when they are acceptable, or a message.
+ * Write rules with `||`, as in `s.password === s.confirmation || "The passwords do not match"`.
+ */
+export type Rule<A> = (values: A) => boolean | string | undefined
+
+/**
+ * Rules keyed by the field whose message they report, or `form` for the form as
+ * a whole. A rule runs once the fields it reads have decoded, even if other
+ * fields are invalid, so its message appears alongside theirs. It is skipped
+ * while any field it reads is invalid.
+ */
+export type Rules<A> =
+  & { readonly [Name in Extract<keyof A, string>]?: Rule<A> }
+  & { readonly form?: Rule<A> }
+
+// Thrown when a rule reads a field that did not decode
+const skip = Symbol("effect-views/Submission/skip")
+
+const runRules = <A>(
+  rules: Rules<A>,
+  decoded: Readonly<Record<string, unknown>>,
+  failed: ReadonlySet<string>,
+  report: (name: string | undefined, message: string) => void
+) => {
+  const view = new Proxy(decoded, {
+    get: (target, key) => {
+      if (typeof key === "string" && failed.has(key)) throw skip
+      return Reflect.get(target, key)
+    }
+  }) as A
+  for (const [name, rule] of Object.entries(rules) as Array<[string, Rule<A> | undefined]>) {
+    if (rule === undefined) continue
+    try {
+      const outcome = rule(view)
+      if (typeof outcome === "string") report(name === "form" ? undefined : name, outcome)
+    } catch (error) {
+      if (error !== skip) throw error
+    }
+  }
+}
+
+/** Decodes each field on its own, to find the values rules may read when the whole form is invalid. */
+const decodeFields = <Fields extends Schema.Struct.Fields>(schema: Schema.Struct<Fields>, present: Values) => {
+  const decoded: Record<string, unknown> = {}
+  const failed = new Set<string>()
+  for (const [name, field] of Object.entries(schema.fields) as Array<[string, Schema.Top]>) {
+    const single = Schema.Struct({ [name]: field }) as Schema.Struct<Schema.Struct.Fields>
+    const input = Object.hasOwn(present, name) ? { [name]: present[name] } : {}
+    const result = Schema.decodeUnknownResult(stringTreeCodec(single))(input)
+    if (Result.isFailure(result)) failed.add(name)
+    else if (Object.hasOwn(result.success, name)) decoded[name] = result.success[name]
+  }
+  return { decoded, failed }
+}
+
+/**
  * Decodes URL-encoded values with a Struct schema, as an HTTP form body is
  * decoded, reporting every field's issues.
  *
@@ -108,14 +164,16 @@ const withUncheckedBooleans = <Fields extends Schema.Struct.Fields>(
  *   for a number.
  * - Issues without a field, such as those from a check on the whole Struct,
  *   become form errors.
+ * - Rules run once the fields they read have decoded; see Rules.
  */
 export const decode = <Fields extends Schema.Struct.Fields>(
   schema: Schema.Struct<Fields>,
-  values: Values
+  values: Values,
+  rules?: Rules<Schema.Struct<Fields>["Type"]>
 ): Submission<Schema.Struct<Fields>["Type"]> => {
   const present = withUncheckedBooleans(schema, withoutEmpty(values))
   const result = Schema.decodeUnknownResult(stringTreeCodec(schema))(present, { errors: "all" })
-  if (Result.isSuccess(result)) return Exit.succeed(result.success)
+  if (Result.isSuccess(result) && rules === undefined) return Exit.succeed(result.success)
 
   const errors: Record<string, Array<string>> = {}
   const formErrors: Array<string> = []
@@ -124,8 +182,10 @@ export const decode = <Fields extends Schema.Struct.Fields>(
     for (const message of messages) if (!list.includes(message)) list.push(message)
   }
 
-  const root = result.failure.issue
-  for (const issue of root._tag === "Composite" ? root.issues : [root]) {
+  const issues = Result.isSuccess(result)
+    ? []
+    : result.failure.issue._tag === "Composite" ? result.failure.issue.issues : [result.failure.issue]
+  for (const issue of issues) {
     if (issue._tag === "Pointer" && issue.path.length > 0) {
       const name = String(issue.path[0])
       const field: Schema.Constraint | undefined = Object.hasOwn(schema.fields, name) ? schema.fields[name] : undefined
@@ -140,6 +200,21 @@ export const decode = <Fields extends Schema.Struct.Fields>(
       if (key === undefined) formErrors.push(message)
       else add(String(key), [message])
     }
+  }
+
+  if (rules !== undefined) {
+    const { decoded, failed } = Result.isSuccess(result)
+      ? { decoded: result.success as Record<string, unknown>, failed: new Set<string>() }
+      : decodeFields(schema, present)
+    runRules(rules, decoded, failed, (name, message) => {
+      if (name === undefined) {
+        if (!formErrors.includes(message)) formErrors.push(message)
+      } else add(name, [message])
+    })
+  }
+
+  if (Result.isSuccess(result) && formErrors.length === 0 && Object.keys(errors).length === 0) {
+    return Exit.succeed(result.success)
   }
   return Exit.fail(new Invalid({ values, errors, formErrors }))
 }
@@ -168,7 +243,10 @@ const RawValues = Schema.Record(Schema.String, Schema.Union([Schema.String, Sche
  * Submission, so the handler decides how to present invalid input. Use it as
  * the payload of any endpoint that receives a form.
  */
-export const schema = <Fields extends Schema.Struct.Fields>(struct: Schema.Struct<Fields>) => {
+export const schema = <Fields extends Schema.Struct.Fields>(
+  struct: Schema.Struct<Fields>,
+  options?: { readonly rules?: Rules<Schema.Struct<Fields>["Type"]> | undefined }
+) => {
   type Type = Schema.Struct<Fields>["Type"]
   const encode = Schema.encodeSync(stringTreeCodec(struct))
   const isSubmission = (input: unknown): input is Submission<Type> => Exit.isExit(input)
@@ -181,7 +259,7 @@ export const schema = <Fields extends Schema.Struct.Fields>(struct: Schema.Struc
     Schema.decodeTo(
       SubmissionDeclaration,
       SchemaTransformation.transform({
-        decode: (values) => decode(struct, values),
+        decode: (values) => decode(struct, values, options?.rules),
         encode: (submission) =>
           Exit.isSuccess(submission)
             ? encode(submission.value) as typeof RawValues.Type

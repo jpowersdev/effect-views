@@ -102,6 +102,8 @@ export interface Config<Fields extends Schema.Struct.Fields, Action extends stri
   readonly action: Action
   /** Flat Struct schema used to decode the submitted form payload. */
   readonly payload: Schema.Struct<Fields>
+  /** Rules about the decoded values; see Submission.Rules. */
+  readonly rules?: Submission.Rules<NoInfer<Schema.Struct<Fields>["Type"]>> | undefined
 }
 
 export interface DeriveConfig<Endpoint extends HttpFormEndpoint.Any> {
@@ -190,9 +192,9 @@ export const make = <
 >(
   config: Config<Fields, Action>
 ): Form<Fields, Action> => {
-  const { action, id, payload: schema } = config
+  const { action, id, payload: schema, rules } = config
   validateId(id)
-  const payload = Submission.schema(schema)
+  const payload = Submission.schema(schema, { rules })
 
   const idFor = <Name extends FieldName<Fields>>(name: Name): string => fieldId(id, name)
   const errorIdFor = (name: string): string => `${fieldId(id, name)}-error`
@@ -371,7 +373,8 @@ export const derive = <const Endpoint extends HttpFormEndpoint.Any>(
   const form = make({
     id,
     action: endpoint.path,
-    payload: HttpFormEndpoint.getPayload(endpoint)
+    payload: HttpFormEndpoint.getPayload(endpoint),
+    rules: HttpFormEndpoint.getRules(endpoint)
   })
 
   const bind = (bound: Form<HttpFormEndpoint.Fields<Endpoint>, Endpoint["path"]>) =>

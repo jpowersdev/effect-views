@@ -11,6 +11,7 @@ type InputSchema = Schema.Top | Schema.Struct.Fields
 
 export interface Metadata<Fields extends Schema.Struct.Fields> {
   readonly payload: Schema.Struct<Fields>
+  readonly rules: Submission.Rules<Schema.Struct<Fields>["Type"]> | undefined
 }
 
 export interface EndpointLike extends HttpApiEndpoint.Constraint {
@@ -38,6 +39,8 @@ export interface Options<
   Headers extends InputSchema
 > {
   readonly payload: Schema.Struct<FormFields>
+  /** Rules about the decoded values; see Submission.Rules. */
+  readonly rules?: Submission.Rules<NoInfer<Schema.Struct<FormFields>["Type"]>>
   readonly params?: Params
   readonly query?: Query
   readonly headers?: Headers
@@ -62,17 +65,17 @@ export function make<
   path: Path,
   options: Options<FormFields, Params, Query, Headers>
 ) {
-  const { payload, ...request } = options
+  const { payload, rules, ...request } = options
   const endpoint = HttpViewEndpoint.post(identifier, path, {
     ...request,
-    payload: Submission.schema(payload)
+    payload: Submission.schema(payload, { rules })
   })
 
   Object.defineProperty(endpoint, TypeId, {
     configurable: false,
     enumerable: false,
     writable: false,
-    value: Object.freeze({ payload })
+    value: Object.freeze({ payload, rules })
   })
 
   return endpoint as typeof endpoint & {
@@ -84,6 +87,10 @@ export const isHttpFormEndpoint = (value: unknown): value is Any =>
   value !== null &&
   (typeof value === "function" || typeof value === "object") &&
   TypeId in value
+
+export const getRules = <Endpoint extends Any>(
+  endpoint: Endpoint
+): Submission.Rules<Schema.Struct<Fields<Endpoint>>["Type"]> | undefined => endpoint[TypeId].rules
 
 export const getPayload = <Endpoint extends Any>(
   endpoint: Endpoint

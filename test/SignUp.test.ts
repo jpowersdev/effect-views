@@ -112,6 +112,33 @@ Vitest.describe("sign-up example", () => {
     }
   })
 
+  Vitest.it("shows rules across fields alongside the fields' own messages", async () => {
+    const { dispose, handler } = makeApp()
+    try {
+      const response = await handler(new Request("http://localhost/sign-up", {
+        method: "POST",
+        body: new URLSearchParams({ ...valid, name: "", confirmation: "something else entirely", age: "14", terms: "" })
+      }))
+      Vitest.expect(summaryItems(await response.text())).toEqual([
+        "Team plans are for people aged 16 and over",
+        '<a href="#sign-up-name">Enter your name</a>',
+        '<a href="#sign-up-confirmation">The passwords do not match</a>',
+        '<a href="#sign-up-terms">Accept the terms to continue</a>'
+      ])
+
+      // Until the password itself is valid, the passwords are not compared.
+      const short = await handler(new Request("http://localhost/sign-up", {
+        method: "POST",
+        body: new URLSearchParams({ ...valid, password: "short", confirmation: "different" })
+      }))
+      Vitest.expect(summaryItems(await short.text())).toEqual([
+        '<a href="#sign-up-password">Use at least 12 characters</a>'
+      ])
+    } finally {
+      await dispose()
+    }
+  })
+
   Vitest.it("rejects a taken email address, keeping what was entered except passwords", async () => {
     const { dispose, handler } = makeApp()
     try {

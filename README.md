@@ -165,16 +165,30 @@ age: Schema.Int.check(Schema.isGreaterThanOrEqualTo(13))
   .annotate({ message: "Enter your age in years, 13 or over" })
 ```
 
-Checks on the whole Struct become form errors:
+### Rules across fields
+
+Rules compare fields. Key each by the field whose message it reports, or `form`
+for the form as a whole, and return `true` or a message:
 
 ```ts
-const ChangePassword = Schema.Struct({
-  password: Schema.String,
-  confirmation: Schema.String
-}).check(Schema.makeFilter(({ confirmation, password }) =>
-  password === confirmation ? undefined : "The passwords do not match"
-))
+const signUp = HttpFormEndpoint.make("signUp", "/sign-up", {
+  payload: SignUp,
+  rules: {
+    confirmation: (s) => s.password === s.confirmation || "The passwords do not match",
+    form: (s) => s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over"
+  }
+})
 ```
+
+A rule runs as soon as the fields it reads are valid, so its message appears
+alongside the other fields' messages instead of after they are fixed. While a
+field it reads is invalid, the rule is skipped: there is no "The passwords do
+not match" next to "Use at least 12 characters". `Form.make` and
+`Submission.schema` take `rules` too.
+
+Checks on the whole Struct, with `.check`, still work and become form errors,
+but Effect runs them only once every field is valid. Keep them for rules the
+schema must enforce everywhere, such as when it also decodes JSON.
 
 An unchecked checkbox is not submitted, so a missing `Schema.Boolean` field is
 `false`. Use `Schema.Literal(true)` for a box that must be checked, such as
@@ -209,10 +223,6 @@ most. It has `role="alert"` and `autofocus`, so the browser moves focus to it
 after a full page load and htmx after a swap, without extra JavaScript. It
 includes the form's own messages, so use it instead of a nameless `Error`. The
 [sign-up example](examples/signup/App.tsx) puts it at the top of a long form.
-
-Effect runs checks on the whole Struct only once every field is valid, so rules
-across fields, such as matching passwords, appear after the fields' own
-problems are fixed.
 
 ### Forms without an HttpFormEndpoint
 

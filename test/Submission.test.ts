@@ -96,6 +96,47 @@ Vitest.describe("Submission", () => {
     Vitest.expect(error.formErrors).toEqual(["The passwords do not match"])
   })
 
+  Vitest.describe("rules", () => {
+    const Booking = Schema.Struct({
+      name: Schema.NonEmptyString,
+      nights: Schema.Int,
+      guests: Schema.Int,
+      promo: Schema.optionalKey(Schema.String)
+    })
+    const rules: Submission.Rules<typeof Booking.Type> = {
+      guests: (s) => s.guests <= s.nights * 4 || "At most four guests per night",
+      form: (s) => s.promo !== "SUMMER" || s.nights >= 3 || "SUMMER needs a stay of three nights or more"
+    }
+
+    Vitest.it("report alongside other fields' messages once the fields they read are valid", async () => {
+      const error = await invalid(Submission.decode(Booking, { name: "", nights: "1", guests: "9", promo: "SUMMER" }, rules))
+      Vitest.expect(error.errors).toEqual({ name: ["Required"], guests: ["At most four guests per night"] })
+      Vitest.expect(error.formErrors).toEqual(["SUMMER needs a stay of three nights or more"])
+    })
+
+    Vitest.it("are skipped while a field they read is invalid", async () => {
+      const error = await invalid(Submission.decode(Booking, { name: "Ada", nights: "many", guests: "9", promo: "SUMMER" }, rules))
+      Vitest.expect(error.errors).toEqual({ nights: ["Expected a string representing a finite number"] })
+      Vitest.expect(error.formErrors).toEqual([])
+    })
+
+    Vitest.it("read missing optional fields as undefined", () => {
+      Vitest.expect(Submission.decode(Booking, { name: "Ada", nights: "1", guests: "2" }, rules))
+        .toEqual(Exit.succeed({ name: "Ada", nights: 1, guests: 2 }))
+    })
+
+    Vitest.it("reject an otherwise valid submission", async () => {
+      const error = await invalid(Submission.decode(Booking, { name: "Ada", nights: "1", guests: "5" }, rules))
+      Vitest.expect(error.errors).toEqual({ guests: ["At most four guests per night"] })
+    })
+
+    Vitest.it("are keyed by fields or form", () => {
+      // @ts-expect-error "room" is not a field
+      const wrong: Submission.Rules<typeof Booking.Type> = { room: () => true }
+      Vitest.expect(wrong).toBeDefined()
+    })
+  })
+
   Vitest.it("constructs Invalid with only the messages a handler has", () => {
     const error = new Submission.Invalid({ values: { title: "x" }, formErrors: ["Try again later"] })
     Vitest.expect(error.errors).toEqual({})

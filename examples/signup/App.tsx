@@ -44,16 +44,7 @@ export const SignUp = Schema.Struct({
   newsletter: Schema.Boolean,
   // A box that must be checked
   terms: Schema.Literal(true).annotateKey({ messageMissingKey: "Accept the terms to continue" })
-}).check(
-  // A rule about two fields, shown on the one to fix
-  Schema.makeFilter(({ confirmation, password }) =>
-    password === confirmation ? undefined : { path: ["confirmation"], issue: "The passwords do not match" }
-  ),
-  // A rule about the form as a whole
-  Schema.makeFilter(({ age, plan }) =>
-    plan === "team" && age < 16 ? "Team plans are for people aged 16 and over" : undefined
-  )
-)
+})
 
 interface Account {
   readonly id: number
@@ -102,7 +93,15 @@ const AccountsLive = Layer.effect(
 
 const showForm = HttpViewEndpoint.get("form", "/")
 
-const signUp = HttpFormEndpoint.make("signUp", "/sign-up", { payload: SignUp })
+const signUp = HttpFormEndpoint.make("signUp", "/sign-up", {
+  payload: SignUp,
+  // Rules across fields, keyed by where their message goes. Each runs as soon as
+  // the fields it reads are valid, alongside the other fields' messages.
+  rules: {
+    confirmation: (s) => s.password === s.confirmation || "The passwords do not match",
+    form: (s) => s.plan !== "team" || s.age >= 16 || "Team plans are for people aged 16 and over"
+  }
+})
 
 const welcome = HttpViewEndpoint.get("welcome", "/accounts/:id", {
   params: { id: Schema.Int }
