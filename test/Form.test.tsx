@@ -279,13 +279,13 @@ Vitest.describe("Form", () => {
       </Filled.Root>
     )
 
-    const focused = view(TodoForm.with(invalid, { autofocus: true }))
+    const focused = view(TodoForm.with(invalid, { autofocusError: true }))
     Vitest.expect(focused).toContain(`<textarea aria-invalid="true" aria-describedby="new-todo-notes-error" autofocus id="new-todo-notes"`)
     Vitest.expect(focused.match(/autofocus/g)).toHaveLength(1)
     Vitest.expect(view(TodoForm.with(invalid))).not.toContain("autofocus")
 
     // A control's own autofocus wins
-    const Filled = TodoForm.with(invalid, { autofocus: true })
+    const Filled = TodoForm.with(invalid, { autofocusError: true })
     Vitest.expect(Html.render(<Filled.Textarea name="notes" autofocus={false} />)).not.toContain("autofocus")
   })
 
