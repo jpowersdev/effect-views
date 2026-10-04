@@ -10,7 +10,7 @@ import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
-import * as Deferred from "effect-views/Deferred"
+import * as HtmlDeferred from "effect-views/HtmlDeferred"
 import * as ErrorPage from "effect-views/ErrorPage"
 import * as Html from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
@@ -81,7 +81,7 @@ const orderActivity = HttpViewEndpoint.get("activity", "/orders/:orderId/activit
   params: OrderParams
 })
 
-const Activity = Deferred.derive({ endpoint: orderActivity, element: "section" })
+const Activity = HtmlDeferred.derive({ endpoint: orderActivity, element: "section" })
 
 export const api = HttpApi.make("Example").add(
   HttpApiGroup.make("orders")

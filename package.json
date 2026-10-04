@@ -18,10 +18,6 @@
       "types": "./dist/Csrf.d.ts",
       "default": "./dist/Csrf.js"
     },
-    "./Deferred": {
-      "types": "./dist/Deferred.d.ts",
-      "default": "./dist/Deferred.js"
-    },
     "./ErrorPage": {
       "types": "./dist/ErrorPage.d.ts",
       "default": "./dist/ErrorPage.js"
@@ -33,6 +29,10 @@
     "./Html": {
       "types": "./dist/Html.d.ts",
       "default": "./dist/Html.js"
+    },
+    "./HtmlDeferred": {
+      "types": "./dist/HtmlDeferred.d.ts",
+      "default": "./dist/HtmlDeferred.js"
     },
     "./HttpFormEndpoint": {
       "types": "./dist/HttpFormEndpoint.d.ts",

@@ -40,7 +40,7 @@ export interface DeriveConfig<Endpoint extends EndpointLike> {
   readonly element?: string
 }
 
-export interface Deferred<Endpoint extends EndpointLike> {
+export interface HtmlDeferred<Endpoint extends EndpointLike> {
   readonly endpoint: Endpoint
   /** Builds the fragment URL, encoding params and query with the endpoint's schemas. */
   readonly url: (request: Request<Endpoint>) => string
@@ -54,9 +54,9 @@ export interface Deferred<Endpoint extends EndpointLike> {
  */
 export const derive = <const Endpoint extends EndpointLike>(
   config: DeriveConfig<Endpoint>
-): Deferred<Endpoint> => {
+): HtmlDeferred<Endpoint> => {
   const { element = "div", endpoint } = config
-  const api = HttpApi.make("effect-views/Deferred").add(
+  const api = HttpApi.make("effect-views/HtmlDeferred").add(
     HttpApiGroup.make("deferred", { topLevel: true }).add(endpoint as any)
   )
   const builder = HttpApiClient.urlBuilder(api) as unknown as Record<string, (request: unknown) => string>

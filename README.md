@@ -18,7 +18,7 @@ Effect and htmx.
   responses on `HX-Request`.
 - Invalid submissions come back to the handler as `Submission.Invalid`, and
   `form.with(invalid)` renders the form again with the user's input and errors.
-- `Deferred.derive` loads slow parts of a page from their own typed endpoints.
+- `HtmlDeferred.derive` loads slow parts of a page from their own typed endpoints.
 - `Csrf.layer` and `ErrorPage.layer` cover cross-site requests and HTML error
   pages as middleware.
 
@@ -389,7 +389,7 @@ const ActivityPanel = Effect.gen(function* () {
 Compose these with `Effect.all` (optionally concurrent), recover with
 `Effect.catchTag`, and the requirements and errors stay in the types.
 
-When part of a page is slow, `Deferred.derive` puts it behind its own GET view
+When part of a page is slow, `HtmlDeferred.derive` puts it behind its own GET view
 endpoint and renders a placeholder that htmx replaces once the page has loaded:
 
 ```tsx
@@ -397,7 +397,7 @@ const orderActivity = HttpViewEndpoint.get("activity", "/orders/:orderId/activit
   params: { orderId: Schema.Int }
 })
 
-const Activity = Deferred.derive({ endpoint: orderActivity })
+const Activity = HtmlDeferred.derive({ endpoint: orderActivity })
 
 <Activity.Root params={{ orderId: order.id }}>
   <p>Loading activity…</p>

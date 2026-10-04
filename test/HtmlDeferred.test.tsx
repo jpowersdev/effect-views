@@ -3,7 +3,7 @@
 import * as Schema from "effect/Schema"
 import * as Vitest from "vitest"
 
-import * as Deferred from "../src/Deferred.js"
+import * as HtmlDeferred from "../src/HtmlDeferred.js"
 import * as Html from "../src/Html.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 
@@ -12,13 +12,13 @@ const activity = HttpViewEndpoint.get("activity", "/orders/:orderId/activity", {
   query: { limit: Schema.optionalKey(Schema.Int) }
 })
 
-const Activity = Deferred.derive({ endpoint: activity })
+const Activity = HtmlDeferred.derive({ endpoint: activity })
 
 const stats = HttpViewEndpoint.get("stats", "/stats")
 
-const Stats = Deferred.derive({ endpoint: stats, element: "section" })
+const Stats = HtmlDeferred.derive({ endpoint: stats, element: "section" })
 
-Vitest.describe("Deferred", () => {
+Vitest.describe("HtmlDeferred", () => {
   Vitest.it("renders a placeholder that loads the endpoint with htmx", () => {
     const view = (
       <Activity.Root params={{ orderId: 42 }} query={{ limit: 5 }} class="panel" aria-busy="true">
