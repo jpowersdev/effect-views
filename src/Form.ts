@@ -156,12 +156,12 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
 
 export interface WithOptions {
   /**
-   * Gives the first control with errors, in schema order, autofocus, so the
-   * browser focuses it after a full page load and htmx after a swap. Screen
-   * readers then read its label and error. For forms without a Summary, which
-   * takes focus itself.
+   * Autofocuses the first control with errors, in schema order: the browser
+   * focuses it after a full page load, and htmx after a swap. Screen readers
+   * then read its label and error. For forms without a Summary, which takes
+   * focus itself.
    */
-  readonly focusInvalid?: boolean
+  readonly autofocus?: boolean
 }
 
 export interface DerivedForm<
@@ -221,7 +221,7 @@ export const make = <
       return [...order.filter((name) => names.includes(name)), ...names.filter((name) => !order.includes(name))]
     }
 
-    const focusTarget = options?.focusInvalid === true ? fieldsWithErrors()[0] : undefined
+    const focusTarget = options?.autofocus === true ? fieldsWithErrors()[0] : undefined
 
     // aria-invalid and aria-describedby for a control whose field has errors, and
     // autofocus for the first of them when asked, unless the control sets its own

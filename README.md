@@ -219,7 +219,7 @@ available for anything else:
 `Form.messages(name)` returns a field's messages, and without a name, the
 form's own. `Form.invalid` tells whether there are any messages at all.
 
-Short forms often need no summary. `NewTodo.with(invalid, { focusInvalid: true })`
+Short forms often need no summary. `NewTodo.with(invalid, { autofocus: true })`
 gives the first invalid control `autofocus`, so the browser focuses it after a
 full page load and htmx after a swap, and a screen reader reads its label and
 error.
