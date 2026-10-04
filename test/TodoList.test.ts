@@ -31,21 +31,21 @@ Vitest.describe("todo list example", () => {
       const page = await handler(new Request("http://localhost/"))
       Vitest.expect(page.status).toBe(200)
       Vitest.expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
-      Vitest.expect(page.headers.get("vary")).toBe("HX-Request")
+      Vitest.expect(page.headers.get("vary")).toBe("HX-Request, HX-Boosted")
       const pageBody = await page.text()
       Vitest.expect(pageBody).toMatch(/^<!doctype html>/)
-      // Keep the browser on /; the form's /todos action has no GET route.
-      Vitest.expect(pageBody).toMatch(/<form\b[^>]*\bhx-push-url="false"/)
+      // htmx posts the form and swaps the fragment; it does not boost, which would ask for a page.
+      Vitest.expect(pageBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
 
       const fragment = await handler(new Request("http://localhost/", {
         headers: { "HX-Request": "true" }
       }))
       Vitest.expect(fragment.status).toBe(200)
-      Vitest.expect(fragment.headers.get("vary")).toBe("HX-Request")
+      Vitest.expect(fragment.headers.get("vary")).toBe("HX-Request, HX-Boosted")
       const fragmentBody = await fragment.text()
       Vitest.expect(fragmentBody).toMatch(/^<main id="todo-app">/)
       Vitest.expect(fragmentBody).not.toContain("<!doctype html>")
-      Vitest.expect(fragmentBody).toMatch(/<form\b[^>]*\bhx-push-url="false"/)
+      Vitest.expect(fragmentBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
 
       const title = "<script>alert(1)</script>"
       const created = await handler(new Request("http://localhost/todos", {
@@ -54,12 +54,12 @@ Vitest.describe("todo list example", () => {
         body: new URLSearchParams({ title })
       }))
       Vitest.expect(created.status).toBe(200)
-      Vitest.expect(created.headers.get("vary")).toBe("HX-Request")
+      Vitest.expect(created.headers.get("vary")).toBe("HX-Request, HX-Boosted")
       const createdBody = await created.text()
       Vitest.expect(createdBody).toMatch(/^<main id="todo-app">/)
       Vitest.expect(createdBody).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
       Vitest.expect(createdBody).not.toContain(title)
-      Vitest.expect(createdBody).toMatch(/<form\b[^>]*\bhx-push-url="false"/)
+      Vitest.expect(createdBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
 
       const nativeSubmission = await handler(new Request("http://localhost/todos", {
         method: "POST",

@@ -11,8 +11,11 @@ import * as Htmx from "./Htmx.js"
 export interface Info {
   readonly status: number
   readonly request: HttpServerRequest.HttpServerRequest
-  /** Whether htmx sent the request, so a fragment is expected rather than a document. */
-  readonly htmx: boolean
+  /**
+   * Whether to render just a fragment, for htmx, rather than a whole page. False
+   * for boosted links and forms, which swap the whole body; see Htmx.wantsFragment.
+   */
+  readonly fragment: boolean
   /** Why the request failed, when it failed rather than responding with an error status. */
   readonly cause: Cause.Cause<unknown> | undefined
 }
@@ -31,14 +34,14 @@ export const layer = (render: (info: Info) => Html.Html) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         if (!acceptsHtml(request)) return yield* httpEffect
-        const htmx = Htmx.isRequest(request)
+        const fragment = Htmx.wantsFragment(request)
 
         const exit = yield* Effect.exit(httpEffect)
         if (Exit.isSuccess(exit)) {
           const response = exit.value
           const contentType = response.headers["content-type"] ?? ""
           if (response.status < 400 || contentType.toLowerCase().startsWith("text/html")) return response
-          return Html.response(render({ status: response.status, request, htmx, cause: undefined }), {
+          return Html.response(render({ status: response.status, request, fragment, cause: undefined }), {
             status: response.status
           })
         }
@@ -46,7 +49,7 @@ export const layer = (render: (info: Info) => Html.Html) =>
         if (Cause.hasInterruptsOnly(exit.cause)) return yield* exit
         const [response] = yield* HttpServerError.causeResponse(exit.cause)
         if (response.status >= 500) yield* Effect.logError("Rendering an error page", exit.cause)
-        return Html.response(render({ status: response.status, request, htmx, cause: exit.cause }), {
+        return Html.response(render({ status: response.status, request, fragment, cause: exit.cause }), {
           status: response.status
         })
       }),

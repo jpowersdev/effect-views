@@ -182,7 +182,7 @@ Vitest.describe("sign-up example", () => {
         body: new URLSearchParams({ ...valid, email: "linus@example.com" })
       }))
       Vitest.expect(htmx.status).toBe(204)
-      Vitest.expect(htmx.headers.get("hx-location")).toBe("/accounts/3")
+      Vitest.expect(htmx.headers.get("hx-redirect")).toBe("/accounts/3")
     } finally {
       await dispose()
     }

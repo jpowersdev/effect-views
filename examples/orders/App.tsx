@@ -164,10 +164,8 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
   </html>
 )
 
-const representation = (
-  request: Parameters<typeof Htmx.isRequest>[0],
-  view: Html.Html
-): Html.Html => Htmx.isRequest(request) ? view : <Page>{view}</Page>
+// Views on their own for htmx, inside the page for everything else
+const page = Htmx.layout(Page)
 
 const NotFound = ({ orderId }: { readonly orderId: number }): Html.Html => (
   <section>
@@ -178,7 +176,7 @@ const NotFound = ({ orderId }: { readonly orderId: number }): Html.Html => (
 
 // An expected error, handled where it happens and shown with a 404 status.
 const notFound = (request: Parameters<typeof Htmx.isRequest>[0]) => (error: OrderNotFound) =>
-  Effect.succeed(Html.response(representation(request, <NotFound orderId={error.orderId} />), { status: 404 }))
+  Effect.succeed(page(request, <NotFound orderId={error.orderId} />, { status: 404 }))
 
 const OrdersHandlers = HttpApiBuilder.group(
   api,
@@ -187,20 +185,20 @@ const OrdersHandlers = HttpApiBuilder.group(
     const orders = yield* Orders
     return handlers
       .handle("list", ({ request }) =>
-        Effect.map(orders.list, (items) => representation(request, <OrdersIndex orders={items} />)))
+        Effect.map(orders.list, (items) => page(request, <OrdersIndex orders={items} />)))
       .handle("show", ({ params, request }) =>
         orders.get(params.orderId).pipe(
-          Effect.map((order) => representation(request, <OrderView order={order} />)),
+          Effect.map((order) => page(request, <OrderView order={order} />)),
           Effect.catchTag("OrderNotFound", notFound(request))
         ))
       .handle("cancel", ({ params, request }) =>
         orders.cancel(params.orderId).pipe(
-          Effect.map((order) => representation(request, <OrderView order={order} />)),
+          Effect.map((order) => page(request, <OrderView order={order} />)),
           Effect.catchTag("OrderNotFound", notFound(request))
         ))
       .handle("activity", ({ params, request }) =>
         ActivityPanel(params.orderId).pipe(
-          Effect.map((panel) => representation(request, panel)),
+          Effect.map((panel) => page(request, panel)),
           Effect.catchTag("OrderNotFound", notFound(request)),
           Effect.provideService(Orders, orders)
         ))
@@ -218,9 +216,9 @@ const statusMessages: Readonly<Record<number, string>> = {
 }
 
 /** Pages for unexpected failures and unknown routes; fragments for htmx. */
-export const errorPages = ErrorPage.layer(({ htmx, status }) => {
+export const errorPages = ErrorPage.layer(({ fragment, status }) => {
   const message = statusMessages[status] ?? "Something went wrong. Please try again."
-  return htmx
+  return fragment
     ? <p>{message}</p>
     : <Page><h1>{status === 404 ? "Not found" : "Error"}</h1><p>{message}</p></Page>
 })

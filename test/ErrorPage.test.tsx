@@ -14,8 +14,8 @@ const makeApp = () => HttpRouter.toWebHandler(
     HttpRouter.add("GET", "/boom", Effect.die(new Error("kaboom"))),
     HttpRouter.add("GET", "/teapot", Effect.succeed(HttpServerResponse.text("short and stout", { status: 418 }))),
     HttpRouter.add("GET", "/rejected", Effect.succeed(Html.response(<p>Fix the form</p>, { status: 422 }))),
-    ErrorPage.layer(({ cause, htmx, status }) => (
-      <p data-htmx={htmx} data-cause={cause !== undefined}>Error {status}</p>
+    ErrorPage.layer(({ cause, fragment, status }) => (
+      <p data-fragment={fragment} data-cause={cause !== undefined}>Error {status}</p>
     ))
   ),
   { disableLogger: true }
@@ -38,7 +38,12 @@ Vitest.describe("ErrorPage", () => {
       Vitest.expect(output).toContain("kaboom")
 
       const fragment = await handler(new Request("http://localhost/boom", { headers: { "HX-Request": "true" } }))
-      Vitest.expect(await fragment.text()).toBe(`<p data-htmx data-cause>Error 500</p>`)
+      Vitest.expect(await fragment.text()).toBe(`<p data-fragment data-cause>Error 500</p>`)
+
+      const boosted = await handler(new Request("http://localhost/boom", {
+        headers: { "HX-Request": "true", "HX-Boosted": "true" }
+      }))
+      Vitest.expect(await boosted.text()).toBe(`<p data-cause>Error 500</p>`)
     } finally {
       log.mockRestore()
       error.mockRestore()

@@ -69,7 +69,7 @@ export const createTodo = HttpFormEndpoint.make("create", "/todos", {
 const NewTodo = Form.derive({ id: "new-todo", endpoint: createTodo })
 
 export const view = (
-  <NewTodo.Root hx-boost="true" hx-push-url="false">
+  <NewTodo.Root hx-post={NewTodo.action} hx-target="#todo-app" hx-swap="outerHTML">
     <NewTodo.Label name="title">What needs doing?</NewTodo.Label>
     <NewTodo.Input name="title" required />
     <button type="submit">Add todo</button>
@@ -83,7 +83,8 @@ reference. Layout, copy, classes, and browser validation attributes remain
 ordinary JSX. The endpoint's schema also decodes the submitted payload on the
 server.
 
-`hx-push-url="false"` keeps the POST-only action out of browser history.
+With htmx, `hx-post` submits the form and swaps the response into
+`#todo-app`; without JavaScript, the browser submits it as usual.
 
 ## Validation errors
 
@@ -109,11 +110,11 @@ error, encoding the decoded value back into the form's values:
           }))
       })
     )
-    return Htmx.isRequest(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
+    return Htmx.wantsFragment(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
   }).pipe(
     Effect.catchTag("FormInvalid", (invalid) =>
       Effect.map(todos.list, (items) =>
-        Html.response(representation(request, items, invalid), { status: 422 })))
+        page(request, Html.app(items, invalid), { status: 422 })))
   ))
 ```
 
@@ -126,7 +127,7 @@ textareas, checkboxes, and selects given `options` show the submitted values
 ```tsx
 const Form = NewTodo.with(invalid)
 
-<Form.Root hx-boost="true" hx-push-url="false" hx-target="#todo-app" hx-swap="outerHTML">
+<Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
   <Form.Error role="alert" class="error" />
   <Form.Label name="title">What needs doing?</Form.Label>
   <Form.Input name="title" required />
@@ -138,10 +139,11 @@ const Form = NewTodo.with(invalid)
 htmx does not swap 4xx responses by default. Put `<Htmx.Config />` in the page
 head to swap 422 responses as well.
 
-A successful POST without htmx answers with `Html.seeOther`, a 303 redirect, so
-that reloading the page does not submit the form again. `Htmx.seeOther(request,
-location)` does the same for both: a 303 for the browser, or `HX-Location` for
-htmx, which loads the page and pushes its URL.
+A successful POST that expects a page answers with `Html.seeOther`, a 303
+redirect, so that reloading the page does not submit the form again.
+`Htmx.seeOther(request, location)` covers htmx too: a 303 for ordinary and
+boosted requests, which htmx follows, and `HX-Redirect` for other htmx
+requests, so the browser loads the whole page.
 
 ### Writing messages
 
@@ -269,12 +271,7 @@ const TodoApp = ({ todos }: { readonly todos: ReadonlyArray<Todo.Todo> }): Html.
   <main id="todo-app">
     <h1>Todo list</h1>
     <TodoList todos={todos} />
-    <NewTodo.Root
-      hx-boost="true"
-      hx-push-url="false"
-      hx-target="#todo-app"
-      hx-swap="outerHTML"
-    >
+    <NewTodo.Root hx-post={NewTodo.action} hx-target="#todo-app" hx-swap="outerHTML">
       <NewTodo.Label name="title">What needs doing?</NewTodo.Label>
       <NewTodo.Input name="title" required />
       <button type="submit">Add todo</button>
@@ -302,42 +299,44 @@ renderer and become a branded `Html` value ready for an Effect response.
 
 ## Full pages and htmx fragments
 
-The same handlers choose a complete document or a focused fragment from the
-`HX-Request` header:
+The same handlers serve a complete page to the browser and just the view to
+htmx. `Htmx.layout` takes the page component once:
 
-```ts
-const representation = (
-  request: Parameters<typeof Htmx.isRequest>[0],
-  todos: ReadonlyArray<Todo.Todo>
-) => Htmx.isRequest(request) ? Html.app(todos) : Html.page(todos)
+```tsx
+const page = Htmx.layout(Page)
+```
 
-export const viewsLayer = HttpApiBuilder.group(
-  RootApi.Api,
-  "todosViews",
-  Effect.fnUntraced(function* (handlers) {
-    const todos = yield* Todos.Todos
-
-    return handlers
-      .handle("list", ({ request }) =>
-        Effect.map(todos.list, (items) => representation(request, items)))
+```tsx
+.handle("show", ({ params, request }) =>
+  Effect.gen(function* () {
+    const order = yield* orders.get(params.orderId)
+    return page(request, <OrderView order={order} />)
   })
 )
 ```
 
-`Htmx.varyLayer` adds `Vary: HX-Request` to HTML responses, and helpers such as
-`Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and `Htmx.trigger` set htmx
-response headers.
+`page(request, view)` returns the view on its own for htmx requests, and inside
+`Page` for ordinary requests and for boosted links and forms, which swap the
+whole body. `Htmx.wantsFragment(request)` makes the same decision for your own
+code. `page(request, view, { status: 404 })` does the same with a status.
+Use `hx-post` or `hx-get`, not `hx-boost`, for elements that swap a fragment.
+
+`Htmx.varyLayer` adds `Vary: HX-Request, HX-Boosted` to HTML responses, and
+helpers such as `Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and
+`Htmx.trigger` set htmx response headers.
 
 ## Error pages
 
-Handle expected errors where they happen, and choose their status with
-`Html.response`:
+Handle expected errors where they happen, and choose their status:
 
 ```tsx
-orders.get(params.orderId).pipe(
-  Effect.map((order) => representation(request, <OrderView order={order} />)),
-  Effect.catchTag("OrderNotFound", (error) =>
-    Effect.succeed(Html.response(<NotFound orderId={error.orderId} />, { status: 404 })))
+.handle("show", ({ params, request }) =>
+  orders.get(params.orderId).pipe(
+    Effect.map((order) => page(request, <OrderView order={order} />)),
+    Effect.catchTag("OrderNotFound", () =>
+      Effect.succeed(page(request, <NotFound />, { status: 404 }))
+    )
+  )
 )
 ```
 
@@ -347,8 +346,8 @@ the CSRF 403. It keeps the status, logs failures that would have been a 500, and
 leaves requests that do not accept HTML, such as JSON API calls, alone:
 
 ```tsx
-const errorPages = ErrorPage.layer(({ htmx, status }) =>
-  htmx ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
+const errorPages = ErrorPage.layer(({ fragment, status }) =>
+  fragment ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
 )
 ```
 

@@ -4,12 +4,10 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
 import * as ViewHtml from "effect-views/Html"
 import * as Htmx from "effect-views/Htmx"
-import * as Submission from "effect-views/Submission"
 
 import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
 import * as Html from "./Html.js"
-import * as Todo from "../Domain/Todo.js"
 
 export const apiLayer = HttpApiBuilder.group(
   RootApi.Api,
@@ -23,12 +21,6 @@ export const apiLayer = HttpApiBuilder.group(
   })
 )
 
-const representation = (
-  request: Parameters<typeof Htmx.isRequest>[0],
-  todos: ReadonlyArray<Todo.Todo>,
-  invalid?: Submission.Invalid
-) => Htmx.isRequest(request) ? Html.app(todos, invalid) : Html.page(todos, invalid)
-
 export const viewsLayer = HttpApiBuilder.group(
   RootApi.Api,
   "todosViews",
@@ -37,7 +29,7 @@ export const viewsLayer = HttpApiBuilder.group(
 
     return handlers
       .handle("list", ({ request }) =>
-        Effect.map(todos.list, (items) => representation(request, items)))
+        Effect.map(todos.list, (items) => Html.page(request, Html.app(items))))
       .handle("create", ({ payload, request }) =>
         Effect.gen(function* () {
           const { title } = yield* payload
@@ -54,13 +46,13 @@ export const viewsLayer = HttpApiBuilder.group(
                 }))
             })
           )
-          // Without htmx, redirect so that reloading the page does not submit again.
-          if (!Htmx.isRequest(request)) return ViewHtml.seeOther("/")
+          // When a page is expected, redirect so that reloading it does not submit again.
+          if (!Htmx.wantsFragment(request)) return ViewHtml.seeOther("/")
           return Html.app(yield* todos.list)
         }).pipe(
           Effect.catchTag("FormInvalid", (invalid) =>
             Effect.map(todos.list, (items) =>
-              ViewHtml.response(representation(request, items, invalid), { status: 422 })))
+              Html.page(request, Html.app(items, invalid), { status: 422 })))
         ))
   })
 )
