@@ -6,13 +6,21 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "packageManager": "pnpm@11.15.0",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./Csrf": {
+      "types": "./dist/Csrf.d.ts",
+      "default": "./dist/Csrf.js"
+    },
+    "./ErrorPage": {
+      "types": "./dist/ErrorPage.d.ts",
+      "default": "./dist/ErrorPage.js"
     },
     "./Form": {
       "types": "./dist/Form.d.ts",
@@ -22,6 +30,10 @@
       "types": "./dist/Html.d.ts",
       "default": "./dist/Html.js"
     },
+    "./Htmx": {
+      "types": "./dist/Htmx.d.ts",
+      "default": "./dist/Htmx.js"
+    },
     "./HttpFormEndpoint": {
       "types": "./dist/HttpFormEndpoint.d.ts",
       "default": "./dist/HttpFormEndpoint.js"
@@ -30,9 +42,13 @@
       "types": "./dist/HttpViewEndpoint.d.ts",
       "default": "./dist/HttpViewEndpoint.js"
     },
-    "./Htmx": {
-      "types": "./dist/Htmx.d.ts",
-      "default": "./dist/Htmx.js"
+    "./Submission": {
+      "types": "./dist/Submission.d.ts",
+      "default": "./dist/Submission.js"
+    },
+    "./View": {
+      "types": "./dist/View.d.ts",
+      "default": "./dist/View.js"
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
@@ -56,6 +72,7 @@
     "dev": "pnpm build && tsx --watch examples/orders/main.tsx",
     "example": "pnpm example:orders",
     "example:orders": "pnpm build && node dist-examples/orders/main.js",
+    "example:signup": "pnpm build && node dist-examples/signup/main.js",
     "example:todo": "pnpm build && node dist-examples/todo-list/main.js",
     "test": "pnpm build:lib && vitest run"
   },
@@ -64,6 +81,7 @@
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0",
+    "@effect/sql-sqlite-node": "4.0.0",
     "@effect/vitest": "4.0.0",
     "@types/node": "26.1.2",
     "effect": "4.0.0",

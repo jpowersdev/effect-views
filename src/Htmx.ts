@@ -3,6 +3,8 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import type * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 
+import * as Html from "./Html.js"
+
 export const isRequest = (request: HttpServerRequest.HttpServerRequest): boolean =>
   request.headers["hx-request"]?.toLowerCase() === "true"
 
@@ -38,6 +40,15 @@ export const reswap = (response: HttpServerResponse.HttpServerResponse, strategy
 export const redirect = (response: HttpServerResponse.HttpServerResponse, location: string) =>
   HttpServerResponse.setHeader(response, "hx-redirect", location)
 
+/**
+ * Sends the browser to another page after a successful POST: a 303 redirect,
+ * or for htmx, `HX-Location`, which loads the page with htmx and pushes its URL.
+ */
+export const seeOther = (request: HttpServerRequest.HttpServerRequest, location: string) =>
+  isRequest(request)
+    ? HttpServerResponse.empty({ status: 204, headers: { "hx-location": location } })
+    : Html.seeOther(location)
+
 export const trigger = (
   response: HttpServerResponse.HttpServerResponse,
   event: string,
@@ -47,3 +58,40 @@ export const trigger = (
   "hx-trigger",
   detail === undefined ? event : JSON.stringify({ [event]: detail })
 )
+
+/**
+ * htmx 2 response handling that also swaps 422 responses, so a rejected form can
+ * be shown again with its errors. Other 4xx and 5xx responses are still errors.
+ */
+export const responseHandling = [
+  { code: "204", swap: false },
+  { code: "[23]..", swap: true },
+  { code: "422", swap: true },
+  { code: "[45]..", swap: false, error: true },
+  { code: "...", swap: false }
+] as const
+
+export interface ConfigProps {
+  /**
+   * A selector whose contents error responses replace, such as the fragments
+   * rendered by ErrorPage.layer. Without it, htmx does not swap them.
+   */
+  readonly errorTarget?: string
+  /** Other htmx configuration, merged over the response handling. */
+  readonly config?: Readonly<Record<string, unknown>>
+}
+
+/** A meta element configuring htmx to swap 422 responses, and errors when errorTarget is set. */
+export const Config = (props: ConfigProps): Html.Html => {
+  const handling = props.errorTarget === undefined
+    ? responseHandling
+    : responseHandling.map((entry) =>
+      entry.code === "[45].."
+        ? { code: entry.code, swap: true, error: true, target: props.errorTarget, swapOverride: "innerHTML" }
+        : entry
+    )
+  return Html.element("meta", {
+    name: "htmx-config",
+    content: JSON.stringify({ responseHandling: handling, ...props.config })
+  })
+}

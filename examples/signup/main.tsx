@@ -12,7 +12,7 @@ import * as App from "./App.js"
 
 const port = Number(process.env["PORT"] ?? 3000)
 
-const main = Layer.mergeAll(App.routes, App.errorPages, Htmx.varyLayer, Csrf.layer()).pipe(
+const main = Layer.mergeAll(App.routes, Htmx.varyLayer, Csrf.layer()).pipe(
   HttpRouter.serve,
   Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port }))
 )
