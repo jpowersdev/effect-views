@@ -605,7 +605,3 @@ keeps pages in step when the browser reconnects after losing the connection.
 pnpm check  # Type-check source, examples, and compile-time test assertions
 pnpm test   # Run renderer, form, and HTTP tests
 ```
-
-## License
-
-[MIT](LICENSE). Copyright (c) 2026 John Powers.
