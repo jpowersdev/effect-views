@@ -420,6 +420,24 @@ and `reject` to customize the response. Behind a proxy that rewrites `Host`,
 browsers without Fetch Metadata need the public origin in `trustedOrigins`. Set
 session cookies with `SameSite=Lax` as well.
 
+## Content security policy
+
+`Csp.layer()` gives every response a fresh nonce and sends a content security
+policy with it. The default, `Csp.strict`, allows scripts, styles and images
+from the page's own origin, and inline scripts and styles only with the nonce.
+Pass `directives` to change it:
+
+```ts
+const app = Layer.mergeAll(routes, Csp.layer({
+  directives: (nonce) => ({ ...Csp.strict(nonce), "frame-src": ["https://www.youtube.com"] })
+}))
+```
+
+While a request is handled, `Csp.nonce()` returns its nonce, for the inline
+scripts and styles a page trusts: `<script nonce={Csp.nonce()}>`. `Htmx.Config`
+hands it to htmx for the styles and scripts htmx adds, and `Assets.Head` puts
+it on its scripts. A response that sets its own policy keeps it.
+
 ## Async views
 
 Components stay synchronous. TypeScript gives every JSX expression the same

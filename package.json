@@ -25,6 +25,11 @@
       "types": "./dist/Component.d.ts",
       "default": "./dist/Component.js"
     },
+    "./Csp": {
+      "effect-views-source": "./src/Csp.ts",
+      "types": "./dist/Csp.d.ts",
+      "default": "./dist/Csp.js"
+    },
     "./Csrf": {
       "effect-views-source": "./src/Csrf.ts",
       "types": "./dist/Csrf.d.ts",
