@@ -93,7 +93,7 @@ export const api = HttpApi.make("Example").add(
     .add(showOrder)
     .add(cancelOrder)
     .add(orderActivity)
-)
+).add(Assets.group)
 
 const OrdersIndex = ({ orders }: { readonly orders: ReadonlyArray<Order> }): Html.Html => (
   <section id="orders">
@@ -206,9 +206,8 @@ const OrdersHandlers = HttpApiBuilder.group(
   })
 ).pipe(Layer.provide(OrdersLive))
 
-export const routes = Layer.mergeAll(
-  HttpApiBuilder.layer(api).pipe(Layer.provide(OrdersHandlers)),
-  Assets.routes
+export const routes = HttpApiBuilder.layer(api).pipe(
+  Layer.provide([OrdersHandlers, Assets.groupLayer(api)])
 )
 
 const statusMessages: Readonly<Record<number, string>> = {

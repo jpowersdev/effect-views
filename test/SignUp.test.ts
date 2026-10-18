@@ -12,7 +12,9 @@ import * as Htmx from "../src/Htmx.js"
 
 const makeApp = () => HttpRouter.toWebHandler(
   Layer.mergeAll(
-    App.routes.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer()))),
+    App.routes.pipe(
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer()))
+    ),
     Htmx.varyLayer,
     Csrf.layer()
   ),

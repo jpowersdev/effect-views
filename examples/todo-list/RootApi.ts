@@ -1,6 +1,8 @@
 import * as HttpApi from "effect/http-api/HttpApi"
 import * as OpenApi from "effect/http-api/OpenApi"
 
+import * as Assets from "effect-views/Assets"
+
 import * as DataApi from "./DataApi.js"
 import * as Views from "./Views.js"
 
@@ -8,6 +10,7 @@ import * as Views from "./Views.js"
 export const Api = HttpApi.make("RootApi")
   .addHttpApi(DataApi.Api)
   .addHttpApi(Views.Api)
+  .add(Assets.group)
   .annotate(OpenApi.Title, "Todo list")
   // Sections of the reference page: the HTML for people, and the JSON for programs
   .annotate(OpenApi.Override, {
