@@ -61,6 +61,19 @@ Vitest.describe("View", () => {
     )
   })
 
+  Vitest.it("renders one connection for elements that take different events", () => {
+    Vitest.expect(Html.render(
+      <Orders.Connect params={{ orderId: 42 }} as="main" class="order">
+        <p sse-swap="status">Waiting…</p>
+        <ul sse-swap="items"></ul>
+      </Orders.Connect>
+    )).toBe(
+      `<main class="order" hx-ext="sse" sse-connect="/orders/42/events">` +
+        `<p sse-swap="status">Waiting…</p><ul sse-swap="items"></ul>` +
+      `</main>`
+    )
+  })
+
   Vitest.it("constrains params and query at compile time", () => {
     // Not called: invalid input would also be rejected by the schema at runtime.
     const invalid = () => [
@@ -75,7 +88,11 @@ Vitest.describe("View", () => {
       // @ts-expect-error params are required by the endpoint
       Activity.url(),
       // @ts-expect-error sse-connect comes from the endpoint
-      <Orders.Subscribe params={{ orderId: 42 }} event="status" sse-connect="/elsewhere" />
+      <Orders.Subscribe params={{ orderId: 42 }} event="status" sse-connect="/elsewhere" />,
+      // @ts-expect-error params are required by the endpoint
+      <Orders.Connect />,
+      // @ts-expect-error the elements inside take the events
+      <Orders.Connect params={{ orderId: 42 }} sse-swap="status" />
     ]
 
     Vitest.expect(invalid).toBeTypeOf("function")

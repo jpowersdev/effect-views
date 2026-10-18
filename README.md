@@ -635,6 +635,17 @@ const Changes = View.derive({ endpoint: changes })
   )))
 ```
 
+When different parts of a page take different events, open one connection
+with `Connect`, and name each part's events in `sse-swap`:
+
+```tsx
+<Changes.Connect as="main">
+  <section sse-swap="todos"><TodoList todos={todos} /></section>
+  <p sse-swap="count">{todos.length} todos</p>
+</Changes.Connect>
+// <main hx-ext="sse" sse-connect="/todos/changes">…</main>
+```
+
 The endpoint is an ordinary HttpApi endpoint, with the API's middleware, and
 the OpenAPI document describes it as `text/event-stream`. The stream ends when
 the browser closes the connection, such as when htmx swaps the element out.

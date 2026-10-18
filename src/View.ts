@@ -58,6 +58,16 @@ export type SubscribeProps<Endpoint extends EndpointLike> =
     readonly children?: Html.Child
   }
 
+export type ConnectProps<Endpoint extends EndpointLike> =
+  & NativeAttributes<"hx-ext" | "sse-connect" | "sse-swap">
+  & Request<Endpoint>
+  & {
+    /** The element. Defaults to "div". */
+    readonly as?: string
+    /** What it contains: elements with `sse-swap` take the events they name. */
+    readonly children?: Html.Child
+  }
+
 export interface DeriveConfig<Endpoint extends EndpointLike> {
   readonly endpoint: Endpoint
 }
@@ -79,6 +89,12 @@ export interface View<Endpoint extends EndpointLike> {
    * needs htmx's sse extension; see Assets.Options.
    */
   readonly Subscribe: (props: SubscribeProps<Endpoint>) => Html.Html
+  /**
+   * An element that opens one connection to the view's stream, for elements
+   * inside it that take different events: each names its events in
+   * `sse-swap`. Use it rather than several Subscribes to the same stream.
+   */
+  readonly Connect: (props: ConnectProps<Endpoint>) => Html.Html
 }
 
 /**
@@ -127,5 +143,15 @@ export const derive = <const Endpoint extends EndpointLike>(config: DeriveConfig
     })
   }
 
-  return Object.freeze({ endpoint, url, Link, Lazy, Subscribe })
+  const Connect = (props: ConnectProps<Endpoint>): Html.Html => {
+    const { as = "div", children, params, query, ...attributes } = props as ConnectProps<Endpoint> & WithRequest
+    return Html.element(as, {
+      ...attributes,
+      "hx-ext": "sse",
+      "sse-connect": build({ params, query }),
+      children
+    })
+  }
+
+  return Object.freeze({ endpoint, url, Link, Lazy, Subscribe, Connect })
 }
