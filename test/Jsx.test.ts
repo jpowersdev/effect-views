@@ -136,10 +136,13 @@ Vitest.describe("Jsx", () => {
       `const constrained = <T extends string>(value: T): Array<T> => [value]`,
       `const typed: Map<string, Array<number>> = new Map<string, Array<number>>()`,
       `const called = id<string>("x") as string satisfies string`,
+      `const apply: <T>(value: T, label?: string) => T = id`,
+      `type Pick = { readonly pick: <T>(items: ReadonlyArray<T>, by: (item: T) => boolean) => T | undefined }`,
+      `const describe = (f: <A>(a: A) => string, label = "<B>(b) =>"): [typeof f, string] => [f, label]`,
       `const element = <p>{id<number>(1)}</p>`
     ].join("\n")
     const compiled = Jsx.transform(source)
-    Vitest.expect(compiled).toContain(source.split("\n").slice(0, 4).join("\n"))
+    Vitest.expect(compiled).toContain(source.split("\n").slice(0, 7).join("\n"))
     Vitest.expect(compiled).toContain(`const element = /* @__PURE__ */ _jsx("p", { children: id<number>(1) })`)
   })
 

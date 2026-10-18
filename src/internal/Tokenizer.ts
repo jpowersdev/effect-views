@@ -660,10 +660,35 @@ export const scan = (source: string, options?: Options): Scan => {
     if (!isIdentifierStart(source.charCodeAt(name))) return false
     const after = skip(wordEnd(name))
     if (source.charCodeAt(after) === COMMA) return true
+    if (source.charCodeAt(after) === GREATER) return isGenericFunction(skip(after + 1))
     const end = wordEnd(after)
     if (source.slice(after, end) !== "extends") return false
     const next = source.charCodeAt(skip(end))
     return next !== EQUALS && next !== GREATER && next !== SLASH
+  }
+
+  /**
+   * Whether `<T>` is followed by a parameter list and then `=>` or a return
+   * type, as in the type `<T>(value: T) => T`: a generic function, not an
+   * element. Written as an expression in a .tsx file, TypeScript itself
+   * rejects it, asking for `<T,>`.
+   */
+  const isGenericFunction = (from: number): boolean => {
+    if (source.charCodeAt(from) !== OPEN_PAREN) return false
+    let depth = 0
+    let i = from
+    for (; i < length; i++) {
+      const c = source.charCodeAt(i)
+      if (c === OPEN_PAREN) depth++
+      else if (c === CLOSE_PAREN && --depth === 0) break
+      else if (c === QUOTE || c === DQUOTE || c === BACKTICK) {
+        // Skips a string in a parameter's default value
+        for (i++; i < length && source.charCodeAt(i) !== c; i++) if (source.charCodeAt(i) === BACKSLASH) i++
+      }
+    }
+    if (depth !== 0) return false
+    const next = skip(i + 1)
+    return source.startsWith("=>", next) || source.charCodeAt(next) === COLON
   }
 
   /** Skips whitespace and comments inside a tag. */

@@ -715,8 +715,8 @@ Assets.layer({ api: Api })
   component submits, such as the fields of the form around it.
 - **Code** is bundled when the server starts, from JavaScript, TypeScript or
   JSX, compiled or not: one file per module, with only the code the components
-  use, and imports pointing at each other's addresses, which change with their
-  contents. `<Assets.Head />` loads the runtime, and each component's view
+  use and none of the whitespace they don't need, and imports pointing at each
+  other's addresses, which change with their contents. `<Assets.Head />` loads the runtime, and each component's view
   preloads its own modules.
 - Keep a browser component's contract and view in modules of their own, apart
   from modules that declare the server's endpoints: everything they import is
