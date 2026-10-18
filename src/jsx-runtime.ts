@@ -9,10 +9,10 @@ export const Fragment = (props: { readonly children?: Html.Child }): Html.Html =
 export const jsx = (
   type: ElementType,
   props: Html.Attributes | null,
-  _key?: string | number
+  key?: string | number
 ): Html.Html => {
   if (typeof type === "function") return type(props ?? {})
-  return Html.element(type, props)
+  return Html.element(type, key === undefined ? props : { ...props, key })
 }
 
 export const jsxs = jsx

@@ -10,6 +10,7 @@ import * as View from "effect-views/View"
 
 import type * as Todo from "../Domain/Todo.js"
 import * as Search from "./Search.js"
+import * as TitleField from "./TitleField.js"
 import * as Views from "./Views.js"
 
 export const NewTodo = Form.derive({
@@ -37,8 +38,7 @@ interface TodoAppProps {
 }
 
 const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
-  // A short form: focus the invalid field rather than showing a summary
-  const Form = NewTodo.with(invalid, { autofocusError: true })
+  const Form = NewTodo.with(invalid)
   return (
     <main id="todo-app">
       <h1>Todo list</h1>
@@ -49,16 +49,8 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
       <Search.View state={Views.SearchState.empty} />
       <Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
         <Form.Error role="alert" class="error" />
-        <div class={Form.hasErrors("title") ? "field field--invalid" : "field"}>
-          <Form.Label name="title">What needs doing?</Form.Label>
-          <Form.Input
-            name="title"
-            type="text"
-            autocomplete="off"
-            required
-          />
-          <Form.Error name="title" class="error" />
-        </div>
+        {/* Runs in the browser: checks the title as you type, and still submits with the form */}
+        <TitleField.View state={TitleField.stateFor(invalid)} />
         <button type="submit">Add todo</button>
       </Form.Root>
     </main>
@@ -67,7 +59,6 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
 
 const styles = `
   .error { color: #b3261e; margin: 0.25rem 0; }
-  .field--invalid input { border: 2px solid #b3261e; }
   input:focus { outline: 3px solid #2f5bd3; outline-offset: 2px; }
 `
 

@@ -15,8 +15,8 @@ const port = Number(process.env["PORT"] ?? 3000)
 
 const main = Layer.mergeAll(App.routes, App.errorPages, Htmx.varyLayer, Csrf.layer()).pipe(
   HttpRouter.serve,
-  // htmx, served from the installed package
-  Layer.provide(Assets.layer()),
+  // htmx, served from the installed package, and the live components that run in the browser
+  Layer.provide(Assets.layer({ api: App.api })),
   Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port }))
 )
 

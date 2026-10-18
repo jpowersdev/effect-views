@@ -520,11 +520,13 @@ templates tagged `css`.
 
 ## Live components
 
-A live component is rendered on the server, and its actions run on the server:
-htmx posts the component's state to an action, and swaps in the component
-rendered with the state the action returns. No JavaScript of your own runs in
-the browser, so handlers can use services, the database, and anything else on
-the server.
+A live component has state, a view of it, and actions that change it. By
+default it runs on the server: htmx posts the component's state to an action,
+and swaps in the component rendered with the state the action returns. No
+JavaScript of your own runs in the browser, so handlers can use services, the
+database, and anything else on the server. A component can run in the browser
+instead, with the same contract and view; see [In the
+browser](#in-the-browser).
 
 Like an HttpApi endpoint, a live component is declared in one place and
 implemented in another. The contract holds the state and the actions:
@@ -569,7 +571,7 @@ The handlers are a layer, with the services they use provided to it. They
 return the next state, and TypeScript requires one for every action:
 
 ```ts
-export const SearchHandlers = LiveComponent.handlers(SearchView, {
+export const SearchHandlers = LiveComponent.server(SearchView, {
   search: (_state, { query = "" }) =>
     Effect.gen(function* () {
       const todos = yield* Todos
@@ -612,6 +614,102 @@ Give an action a `description` to summarize it in the OpenAPI document.
   provided. Pages rendered before a restart, or by another server, stop
   accepting actions; to share a key, provide
   `LiveComponent.secret(Redacted.make(...))` to `HttpRouter.serve`.
+- An action with `concurrency: "switch"` replaces a request in flight with a
+  newer one, through `hx-sync`.
+
+### In the browser
+
+Some components respond to every key press or drag, or keep state that never
+needs the server: a field that checks itself as you type, a list of items
+being edited. Declare them with `runs: "browser"`. The contract and the view
+are the same; the view renders on the server first, and then in the browser
+after each change, updating the page in place so focus and the caret stay
+where they are.
+
+```ts
+export const edit = LiveAction.make("edit", {
+  payload: { title: Schema.String },
+  // A newer keystroke interrupts the run before it, and the request it made
+  concurrency: "switch"
+})
+
+export const TitleField = LiveComponent.make("todo-title", { state: TitleState, runs: "browser" })
+  .add(edit)
+```
+
+In the view, each action is a command, bound to an event with `On`. A value
+can be read from the element when the event happens, with `On.value` or
+`On.checked`. Bindings are data in attributes, so nothing in the markup is
+code, and a strict content security policy still applies:
+
+```tsx
+export const TitleFieldView = LiveComponent.view(TitleField, {
+  render: (state, actions) => (
+    <>
+      <input name="title" value={state.title} {...On.input(actions.edit({ title: On.value }))} />
+      <p aria-live="polite">{state.problem}</p>
+    </>
+  )
+})
+```
+
+`On.click`, `On.input`, `On.change`, `On.submit`, `On.focusin` and `On.focusout`
+take commands; `On.keydown` and `On.keyup` take a map of keys, and the keys in
+it no longer do what they usually do, so Enter can choose an option rather
+than submit the form. Give items in lists a `key`, rendered as `data-key`, so
+they keep their elements as items are added and removed.
+
+The handlers run in the browser. They change the state rather than return
+it, because actions overlap there, such as a key press while a check waits
+for the server. Services come from a layer, built once per page and shared by
+the components that provide it. A handler can call the application's own API
+with `HttpApiClient`, typed by the same HttpApi the server implements:
+
+```ts
+// TitleField.browser.ts
+const client = HttpApiClient.make(DataApi.Api)
+
+export const TitleFieldHandlers = LiveComponent.browser(TitleFieldView, {
+  edit: (state, { title }) =>
+    Effect.gen(function* () {
+      yield* state.update((s) => new TitleState({ ...s, title, checking: true }))
+      yield* Effect.sleep("300 millis")
+      const { todosApi } = yield* client
+      const taken = (yield* todosApi.list()).some((todo) => todo.title === title.trim())
+      yield* state.update((s) => new TitleState({ ...s, checking: false, problem: taken ? "Already on the list" : "" }))
+    }).pipe(Effect.catch(() => state.update((s) => new TitleState({ ...s, checking: false }))))
+}, { layer: FetchHttpClient.layer })
+```
+
+Call `LiveComponent.browser` at the top of a module of its own: effect-views
+bundles that module, and everything it imports, for the browser when
+`Assets.layer` is built, so it must not import anything that only runs on the
+server. There is no build step and nothing to configure; give `Assets.layer`
+the API, and add and handle the component like one that runs on the server:
+
+```ts
+export const group = HttpApiGroup.make("todosViews")
+  .add(...LiveComponent.endpoints(TitleField))
+
+… .pipe(LiveComponent.handle(Search, TitleField))
+).pipe(Layer.provide([SearchHandlers, TitleFieldHandlers]))
+
+Assets.layer({ api: Api })
+```
+
+- **State** is encoded as JSON in an attribute of the component's element,
+  and never sent back: the server does not trust it, so check anything the
+  component submits, such as the fields of the form around it.
+- **Code** is bundled when the server starts: one file per module, with
+  imports pointing at each other's addresses, which change with their
+  contents. `<Assets.Head />` loads the runtime, and each component's view
+  preloads its own modules.
+- **Running from source:** the bundler reads JavaScript, and TypeScript
+  without JSX, so run the server from compiled output, as `tsc` writes it.
+  Views written in `.tsx` are bundled from `tsc`'s `.js`.
+- The component's endpoint, `/live/<tag>/module.js`, serves its code from an
+  address that does not change; it is also how `Assets.layer` finds the
+  component in the API.
 
 ### Assets
 
@@ -641,6 +739,8 @@ refer to the application's files with `Assets.url`:
 that error pages rendered by middleware can render the head too; with
 `HttpRouter.toWebHandler`, use `Layer.provideMerge`.
 
+Pass `api` to bundle the live components in the API that run in the
+browser, with the effect-views runtime; see [In the browser](#in-the-browser).
 Pass `htmx: { url }` to load htmx from elsewhere, `htmx: false` to leave it
 out, `extensions: ["sse"]` to serve htmx extensions from their `htmx-ext-<name>`
 packages, or `prefix` to serve the files from somewhere other than `/assets`,

@@ -52,7 +52,7 @@ const CounterView = LiveComponent.view(Counter, {
 /** A service the handlers use, to show that they can depend on the application. */
 class Step extends Context.Service<Step, { readonly size: number }>()("test/Step") {}
 
-const CounterHandlers = LiveComponent.handlers(CounterView, {
+const CounterHandlers = LiveComponent.server(CounterView, {
   increment: (state) =>
     Effect.gen(function* () {
       const { size } = yield* Step
@@ -123,11 +123,11 @@ export const typeChecks = () => [
     )
   }),
   // @ts-expect-error every action needs a handler
-  LiveComponent.handlers(CounterView, {
+  LiveComponent.server(CounterView, {
     increment: (state) => Effect.succeed(state),
     add: (state) => Effect.succeed(state)
   }),
-  LiveComponent.handlers(CounterView, {
+  LiveComponent.server(CounterView, {
     increment: (state) => Effect.succeed(state),
     add: (state) => Effect.succeed(state),
     // @ts-expect-error a handler returns the next state

@@ -75,6 +75,11 @@
       "types": "./dist/LiveComponent.d.ts",
       "default": "./dist/LiveComponent.js"
     },
+    "./On": {
+      "effect-views-source": "./src/On.ts",
+      "types": "./dist/On.d.ts",
+      "default": "./dist/On.js"
+    },
     "./Submission": {
       "effect-views-source": "./src/Submission.ts",
       "types": "./dist/Submission.d.ts",
@@ -107,7 +112,9 @@
     "build:lib": "tsc -b src",
     "check": "tsc -b",
     "clean": "tsc -b --clean && rm -rf .tsbuildinfo dist dist-examples dist-test",
-    "dev": "pnpm build && tsx --watch examples/orders/main.tsx",
+    "dev": "pnpm build && pnpm run \"/^dev:/\"",
+    "dev:tsc": "tsc -b src examples --watch --preserveWatchOutput",
+    "dev:server": "node --watch dist-examples/orders/main.js",
     "example": "pnpm example:orders",
     "example:orders": "pnpm build && node dist-examples/orders/main.js",
     "example:signup": "pnpm build && node dist-examples/signup/main.js",

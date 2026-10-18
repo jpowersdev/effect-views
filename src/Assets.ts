@@ -1,65 +1,30 @@
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
-import type * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
 import * as HttpApiError from "effect/http-api/HttpApiError"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
 import * as Csp from "./Csp.js"
 import * as Html from "./Html.js"
+import * as Bundler from "./internal/Bundler.js"
+import { Assets, current, type File, type LiveModule, type Manifest, registered } from "./internal/Manifest.js"
+import * as LiveComponent from "./LiveComponent.js"
 
-/** What a component contributes to the shared stylesheet; see Component.make. */
-export interface Definition {
-  readonly tag: string
-  /** Styles, already scoped to the component's element. */
-  readonly style: string | undefined
-}
-
-const definitions = new Map<string, Definition>()
-
-/** @internal Called by Component.make. */
-export const register = (definition: Definition): void => {
-  if (definitions.has(definition.tag)) {
-    throw new TypeError(`A component is already defined as <${definition.tag}>`)
-  }
-  definitions.set(definition.tag, definition)
-}
-
-export interface File {
-  readonly path: string
-  readonly contentType: string
-  readonly body: Uint8Array
-}
-
-export interface Manifest {
-  /** Where the files are served, such as "/assets". */
-  readonly prefix: `/${string}`
-  /** Tags for the page head: the stylesheet and htmx. */
-  readonly head: Html.Html
-  /** The stylesheets and the scripts the head loads, in order. */
-  readonly stylesheets: ReadonlyArray<string>
-  readonly scripts: ReadonlyArray<string>
-  /** Where the application's own files are served, by name; see Options.files and url. */
-  readonly urls: ReadonlyMap<string, string>
-  /** Files served by Assets.layer, by path. */
-  readonly files: ReadonlyMap<string, File>
-  /** Components whose styles the files include. */
-  readonly components: ReadonlySet<string>
-}
-
-/** The assets built when Assets.layer started, available while handling each request. */
-export class Assets extends Context.Service<Assets, Manifest>()("effect-views/Assets") {}
+// Defined apart, without Node, for the modules that also run in the browser
+export { Assets, current, register } from "./internal/Manifest.js"
+export type { Definition, File, LiveModule, Manifest } from "./internal/Manifest.js"
 
 export class AssetsError extends Data.TaggedError("AssetsError")<{
   readonly message: string
@@ -89,6 +54,16 @@ export interface Options {
    * ```
    */
   readonly files?: Readonly<Record<string, string | URL>>
+  /**
+   * The application's API. Live components that run in the browser are found
+   * in it, by their endpoints, and their modules are bundled with the
+   * effect-views runtime when the layer is built, for the head to load.
+   *
+   * ```ts
+   * Assets.layer({ api: Api })
+   * ```
+   */
+  readonly api?: HttpApi.HttpApi<string, any>
 }
 
 const contentTypes: Readonly<Record<string, string>> = {
@@ -139,24 +114,85 @@ const readExtension = (name: string) =>
   })
 
 const headTags = (
-  stylesheets: ReadonlyArray<string>,
-  scripts: ReadonlyArray<string>,
+  manifest: Pick<Manifest, "stylesheets" | "scripts" | "modules" | "modulePreloads">,
   nonce: string | undefined
 ): Html.Html =>
   Html.fragment(
-    stylesheets.map((href) => Html.element("link", { rel: "stylesheet", href })),
-    scripts.map((src) => Html.element("script", { src, defer: true, nonce }))
+    manifest.stylesheets.map((href) => Html.element("link", { rel: "stylesheet", href })),
+    manifest.scripts.map((src) => Html.element("script", { src, defer: true, nonce })),
+    manifest.modulePreloads.map((href) => Html.element("link", { rel: "modulepreload", href })),
+    manifest.modules.map((src) => Html.element("script", { type: "module", src, nonce }))
   )
 
-/** Builds the stylesheet for every component defined so far, with htmx unless left out. */
+/** The tags of the live components in the API that run in the browser, by their module endpoints. */
+const browserComponents = (api: HttpApi.HttpApi<string, any>): ReadonlyArray<string> => {
+  const tags: Array<string> = []
+  HttpApi.reflect(api, {
+    onGroup: () => {},
+    onEndpoint: ({ endpoint }) => {
+      const module = Context.getOrUndefined(endpoint.annotations, LiveComponent.BrowserModule)
+      if (module !== undefined) tags.push(module.tag)
+    }
+  })
+  return tags
+}
+
+/** The runtime's entry: compiled JavaScript beside this module, or its TypeScript source when run from source. */
+const runtimeEntry = (): string => {
+  const compiled = fileURLToPath(new URL("./client/start.js", import.meta.url))
+  return existsSync(compiled) ? compiled : fileURLToPath(new URL("./client/start.ts", import.meta.url))
+}
+
+const bundleBrowserComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${string}`) =>
+  Effect.gen(function* () {
+    const tags = browserComponents(api)
+    if (tags.length === 0) return undefined
+    const files = new Map<string, string>()
+    for (const tag of tags) {
+      const definition = LiveComponent.browserDefinition(tag)
+      if (definition === undefined) {
+        return yield* new AssetsError({
+          message: `<${tag}> runs in the browser, but the module that calls LiveComponent.browser for it has not been ` +
+            `loaded; provide its layer to the group that handles <${tag}>, before building Assets.layer`
+        })
+      }
+      if (definition.file === undefined) {
+        return yield* new AssetsError({ message: `Could not tell which file defines the browser handlers of <${tag}>` })
+      }
+      files.set(tag, definition.file)
+    }
+    const runtime = runtimeEntry()
+    const bundle = yield* Bundler.bundle({ entries: [runtime, ...files.values()], prefix }).pipe(
+      Effect.mapError((cause) => new AssetsError({ message: cause.message, cause }))
+    )
+    const runtimePreloads = bundle.preloads.get(runtime) ?? []
+    const loaded = new Set([bundle.entries.get(runtime), ...runtimePreloads])
+    const live = new Map<string, LiveModule>()
+    for (const [tag, file] of files) {
+      live.set(tag, {
+        module: bundle.entries.get(file)!,
+        // The head already preloads the runtime and what it imports, such as effect
+        preloads: (bundle.preloads.get(file) ?? []).filter((path) => !loaded.has(path))
+      })
+    }
+    return { files: bundle.files, module: bundle.entries.get(runtime)!, preloads: runtimePreloads, live }
+  })
+
+/**
+ * Builds the stylesheet for every component defined so far, with htmx unless
+ * left out, and bundles the live components in the API that run in the browser.
+ */
 export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
   Effect.gen(function* () {
     const prefix = prefixOf(options)
-    const included = [...definitions.values()]
+    const included = registered()
     const files = new Map<string, File>()
     const stylesheets: Array<string> = []
     const scripts: Array<string> = []
+    const modules: Array<string> = []
+    const modulePreloads: Array<string> = []
     const urls = new Map<string, string>()
+    let live: ReadonlyMap<string, LiveModule> = new Map()
 
     const add = (name: string, extension: string, contentType: string, body: Uint8Array): File => {
       const fileName = `${name}-${hash(body)}.${extension}`
@@ -193,14 +229,27 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       urls.set(name, add(base, extension, contentType, yield* readFileAt(name, path)).path)
     }
 
+    if (options?.api !== undefined) {
+      const bundled = yield* bundleBrowserComponents(options.api, prefix)
+      if (bundled !== undefined) {
+        for (const file of bundled.files) files.set(file.path, file)
+        modules.push(bundled.module)
+        modulePreloads.push(...bundled.preloads)
+        live = bundled.live
+      }
+    }
+
     return {
       prefix,
-      head: headTags(stylesheets, scripts, undefined),
+      head: headTags({ stylesheets, scripts, modules, modulePreloads }, undefined),
       stylesheets,
       scripts,
+      modules,
+      modulePreloads,
       urls,
       files,
-      components: new Set(included.map((definition) => definition.tag))
+      components: new Set(included.map((definition) => definition.tag)),
+      live
     }
   })
 
@@ -292,15 +341,10 @@ export const url = (name: string): string => {
   return path
 }
 
-/** The assets for the request being handled, if Assets.layer is in use. */
-export const current = (): Manifest | undefined => {
-  const fiber = Fiber.getCurrent()
-  return fiber === undefined ? undefined : Context.getOrUndefined(fiber.context, Assets)
-}
-
 /**
- * The stylesheet and htmx, for the page head, with the response's nonce on the
- * scripts when `Csp.layer` is in use. Requires the Assets service; see layer.
+ * The stylesheet, htmx, and the effect-views runtime when live components run
+ * in the browser, for the page head, with the response's nonce on the scripts
+ * when `Csp.layer` is in use. Requires the Assets service; see layer.
  *
  * ```tsx
  * <head>
@@ -315,5 +359,5 @@ export const Head = (): Html.Html => {
     throw new Error("Assets.Head needs the Assets service; provide Assets.layer() to HttpRouter.serve")
   }
   const nonce = Csp.nonce()
-  return nonce === undefined ? manifest.head : headTags(manifest.stylesheets, manifest.scripts, nonce)
+  return nonce === undefined ? manifest.head : headTags(manifest, nonce)
 }

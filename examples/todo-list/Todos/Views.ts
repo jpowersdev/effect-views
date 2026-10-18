@@ -39,9 +39,35 @@ export const search = LiveAction.make("search", {
 export const Search = LiveComponent.make("todo-search", { state: SearchState })
   .add(search)
 
+/** What the title field renders from, in the browser: what was typed, and what is wrong with it. */
+export class TitleState extends Schema.Class<TitleState>("TitleState")({
+  title: Schema.String,
+  /** The first problem with the title, empty while it is fine or before anything is typed. */
+  problem: Schema.String,
+  /** Whether the list is being checked for the title. */
+  checking: Schema.Boolean
+}) {
+  static readonly empty = new TitleState({ title: "", problem: "", checking: false })
+}
+
+/** Runs as you type. A newer keystroke interrupts the run before it, along with its request. */
+export const edit = LiveAction.make("edit", {
+  payload: { title: Schema.String },
+  concurrency: "switch"
+})
+
+/**
+ * The new todo's title, checked as you type with the form's own schema, then
+ * against the list. It runs in the browser; see TitleField.tsx and
+ * TitleField.browser.ts.
+ */
+export const TitleField = LiveComponent.make("todo-title", { state: TitleState, runs: "browser" })
+  .add(edit)
+
 /** The todos' pages, fragments, and live components; listed as "Todos" under "Views". */
 export const group = HttpApiGroup.make("todosViews")
   .add(list, changes, create)
   .add(...LiveComponent.endpoints(Search))
+  .add(...LiveComponent.endpoints(TitleField))
   .annotate(OpenApi.Override, { "x-displayName": "Todos" })
   .annotate(OpenApi.Description, "The todo list's pages, the fragments htmx swaps in, and its live components.")

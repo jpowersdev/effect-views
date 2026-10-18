@@ -7,5 +7,5 @@
     "tsBuildInfoFile": "../.tsbuildinfo/src.tsbuildinfo",
     "types": ["node"]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "internal/*.ts", "client/*.ts"]
 }

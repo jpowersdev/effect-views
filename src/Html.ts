@@ -126,9 +126,11 @@ const renderStyle = (value: unknown): string => {
 }
 
 const renderAttribute = (inputName: string, inputValue: unknown): string => {
-  if (inputName === "children" || inputName === "key" || inputValue === null || inputValue === undefined || inputValue === false) {
+  if (inputName === "children" || inputValue === null || inputValue === undefined || inputValue === false) {
     return ""
   }
+  // Keys identify items across renders: the browser runtime matches elements by data-key when it updates the page
+  if (inputName === "key") return renderAttribute("data-key", String(inputValue))
   if (inputName === "dangerouslySetInnerHTML" || inputName.toLowerCase() === "srcdoc" || /^on/i.test(inputName)) {
     throw new TypeError(`Unsafe HTML attribute: ${inputName}`)
   }

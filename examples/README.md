@@ -57,6 +57,17 @@ connects, and again each time any client adds a todo, and htmx swaps it in.
 Open the page in two windows and add a todo in one to see it arrive in the
 other.
 
+The title field runs in the browser. As you type, it checks the title with
+the same schema, and the same messages, as the form's handler, and shows how
+many characters are left. When you pause, it asks the JSON API whether the
+title is already on the list, with a client `HttpApiClient` derives from the
+API; each keystroke interrupts the check before it. Its contract is in
+[`Todos/Views.ts`](todo-list/Todos/Views.ts), its markup in
+[`Todos/TitleField.tsx`](todo-list/Todos/TitleField.tsx), and its handler in
+[`Todos/TitleField.browser.ts`](todo-list/Todos/TitleField.browser.ts), which
+`Assets.layer` bundles when the server starts. The form still submits the
+title, and the server still checks it.
+
 The [CLI](todo-list/cli.ts) uses a client that `HttpApiClient` derives from the
 API's contract, so its requests and responses are typed with the schemas the
 server uses. Adding a title that is already on the list fails with the same
@@ -146,9 +157,18 @@ Order #7 does not exist: its handler answers with a 404 page. Unknown paths,
 such as <http://127.0.0.1:3000/nope>, and invalid ones, such as
 <http://127.0.0.1:3000/orders/abc>, get error pages from `ErrorPage.layer`.
 
+Choose **Place a new order**. The items are a live component that runs in
+the browser: add, remove, and change items, and the prices and total change as
+you edit them, without a request. The form submits the items when you place
+the order, and the server decodes them with the same schema. The items, their
+schema, and the view are in [`orders/Lines.tsx`](orders/Lines.tsx), which the
+server and the browser both import; the handlers are in
+[`orders/Lines.browser.ts`](orders/Lines.browser.ts).
+
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.
 
-`pnpm example` also starts the orders demo. `pnpm dev` watches its example
-files. After editing `src/`, restart the command to rebuild the library. See the
+`pnpm example` also starts the orders demo. `pnpm dev` compiles the library
+and examples as they change, and restarts the demo when they do; reload the
+page to see changes to a component that runs in the browser. See the
 [root check commands](../README.md#checks) for type checking and tests.
