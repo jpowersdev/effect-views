@@ -33,7 +33,7 @@ let defaultKey: Uint8Array | undefined
  * random when first used, so pages rendered before a restart, or by another
  * server, stop accepting actions. Provide `LiveComponent.secret(...)` to share one.
  */
-export const Secret = Context.Reference<Uint8Array>("effect-views/LiveComponent/Secret", {
+export const Secret = /*#__PURE__*/ Context.Reference<Uint8Array>("effect-views/LiveComponent/Secret", {
   defaultValue: () => defaultKey ??= nodeCrypto().randomBytes(32)
 })
 
@@ -165,16 +165,6 @@ export const make = <const Tag extends string, S extends Schema.Top, const Where
 
 // Views -------------------------------------------------------------------------
 
-/** Attributes that send an action with htmx: spread them onto a button, input, or form. */
-export interface ActionAttributes {
-  readonly "hx-post": string
-  readonly "hx-include": string
-  readonly "hx-target": string
-  readonly "hx-swap": string
-  readonly "hx-vals"?: string
-  readonly "hx-sync"?: string
-}
-
 /**
  * A placeholder fits a field whose encoded form is text or a boolean, such as
  * a number parsed from text or one of several literals; decoding checks it.
@@ -189,19 +179,18 @@ export type BrowserValues<Payload, Encoded> = {
 }
 
 /**
- * What each action gives the view. On the server: attributes that send the
- * action with htmx, taking values for any of its fields, with the rest coming
- * from inputs in the component, by name. In the browser: a command to bind to
- * an event with On, taking all of its values.
+ * What each action gives the view: a command to bind to an event with On. On
+ * the server, an action takes values for any of its fields, and the rest come
+ * from inputs in the component, by name. In the browser, it takes all of its
+ * values, each known when rendering or read when the event happens.
  */
 export type Actions<C> = C extends LiveComponent<any, any, infer Defined, infer Where> ? Where extends "browser" ? {
       readonly [Name in keyof Defined]: [keyof LiveAction.Payload<Defined[Name]>] extends [never] ? () => On.Command
         : (values: BrowserValues<LiveAction.Payload<Defined[Name]>, LiveAction.Encoded<Defined[Name]>>) => On.Command
     }
   : {
-    readonly [Name in keyof Defined]: [keyof LiveAction.Payload<Defined[Name]>] extends [never]
-      ? () => ActionAttributes
-      : (values?: Partial<LiveAction.Payload<Defined[Name]>>) => ActionAttributes
+    readonly [Name in keyof Defined]: [keyof LiveAction.Payload<Defined[Name]>] extends [never] ? () => On.Command
+      : (values?: Partial<LiveAction.Payload<Defined[Name]>>) => On.Command
   }
   : never
 
@@ -225,6 +214,17 @@ export interface ViewOptions<C extends Any> {
 /** Where a component that runs in the browser loads its code, without Assets.layer: see endpoints. */
 const moduleEndpointPath = (tag: string) => `${prefix}/${tag}/module.js`
 
+/** Fails clearly when the page cannot run the component, rather than rendering controls that do nothing. */
+const requireRuntime = (tag: string): void => {
+  const manifest = Manifest.current()
+  if (manifest !== undefined && !manifest.runtime) {
+    throw new Error(
+      `<${tag}> needs the effect-views runtime; give Assets.layer the API that has the component's endpoints: ` +
+        `Assets.layer({ api })`
+    )
+  }
+}
+
 /**
  * The markup of a live component. It needs only the contract, so it renders
  * without the handlers or their services; a component that runs in the
@@ -233,7 +233,7 @@ const moduleEndpointPath = (tag: string) => `${prefix}/${tag}/module.js`
  * ```tsx
  * export const SearchView = LiveComponent.view(Search, {
  *   render: (state, actions) => (
- *     <input name="query" value={state.query} {...actions.search()} hx-trigger="input changed delay:200ms" />
+ *     <input name="query" value={state.query} {...On.input(actions.search())} />
  *   )
  * })
  *
@@ -261,10 +261,14 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
 
     const Element = Component.make<StateOf<C>>(component.tag, {
       ...style,
-      attributes: (state) => ({
-        "data-live-module": Manifest.current()?.live.get(component.tag)?.module ?? moduleEndpointPath(component.tag),
-        "data-live-state": JSON.stringify(encode(state))
-      }),
+      attributes: (state) => {
+        requireRuntime(component.tag)
+        return {
+          "data-live": "browser",
+          "data-live-module": Manifest.current()?.live.get(component.tag)?.module ?? moduleEndpointPath(component.tag),
+          "data-live-state": JSON.stringify(encode(state))
+        }
+      },
       render: contents
     })
     const render = (state: StateOf<C>) => {
@@ -275,27 +279,26 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
     return Object.assign((props: { readonly state: StateOf<C> }) => render(props.state), { component, render, contents })
   }
 
-  const target = `closest ${component.tag}`
-  const attributesOf = (action: LiveAction.Any) => (values?: Record<string, unknown>): ActionAttributes => {
-    const attributes = {
-      "hx-post": `${prefix}/${component.tag}/${action.name}`,
-      "hx-include": target,
-      "hx-target": target,
-      "hx-swap": "outerHTML",
-      // A newer request replaces the one in flight
-      ...(action.concurrency === "switch" ? { "hx-sync": "this:replace" } : {})
-    }
-    if (values === undefined) return attributes
-    const encoded: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(values)) {
+  const commandOf = (action: LiveAction.Any) => (values?: Record<string, unknown>): On.Command => {
+    const payload: Record<string, string | ReadonlyArray<string>> = {}
+    for (const [key, value] of Object.entries(values ?? {})) {
       const field = action.payload.fields[key] as Schema.Top | undefined
-      if (field !== undefined && value !== undefined) encoded[key] = Schema.encodeSync(stringTreeCodec(field))(value)
+      if (field !== undefined && value !== undefined) {
+        payload[key] = Schema.encodeSync(stringTreeCodec(field))(value) as string | ReadonlyArray<string>
+      }
     }
-    return { ...attributes, "hx-vals": JSON.stringify(encoded) }
+    return {
+      _tag: "Server",
+      action: action.name,
+      url: `${prefix}/${component.tag}/${action.name}`,
+      payload,
+      concurrency: action.concurrency,
+      ...(action.debounce === undefined ? {} : { debounce: action.debounce })
+    }
   }
 
   const actions = Object.fromEntries(
-    Object.values(component.actions).map((action) => [action.name, attributesOf(action)])
+    Object.values(component.actions).map((action) => [action.name, commandOf(action)])
   ) as Actions<C>
 
   const contents = (state: StateOf<C>) =>
@@ -303,7 +306,14 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
       Html.element("input", { type: "hidden", name: stateField, value: seal(currentKey(), encode(state)) }),
       options.render(state, actions)
     )
-  const Element = Component.make<StateOf<C>>(component.tag, { ...style, render: contents })
+  const Element = Component.make<StateOf<C>>(component.tag, {
+    ...style,
+    attributes: () => {
+      requireRuntime(component.tag)
+      return { "data-live": "server" }
+    },
+    render: contents
+  })
 
   const render = (props: { readonly state: StateOf<C> }) => Element(props.state)
   return Object.assign(render, { component, render: Element, contents })
@@ -400,7 +410,10 @@ export interface BrowserDefinition {
   readonly file: string | undefined
 }
 
-const browserDefinitions = new Map<string, BrowserDefinition>()
+// Shared by every copy of this module in the page, such as one from source and one compiled, so that the
+// runtime finds handlers registered by either
+const browserDefinitions: Map<string, BrowserDefinition> =
+  ((globalThis as any)[Symbol.for("effect-views/LiveComponent/browserDefinitions")] ??= new Map())
 
 /** @internal The browser handlers defined for a tag, if their module has been loaded. */
 export const browserDefinition = (tag: string): BrowserDefinition | undefined => browserDefinitions.get(tag)
@@ -463,7 +476,7 @@ export const browser: {
 
 // Endpoints ---------------------------------------------------------------------
 
-const stateSchema = Schema.String.annotate({
+const stateSchema = /*#__PURE__*/ Schema.String.annotate({
   description: "The component's state, encoded and signed when it was rendered"
 })
 
@@ -481,26 +494,29 @@ const endpointOf = <const Tag extends string, const Name extends string, Fields 
       annotations: OpenApi.annotations({
         ...(description === undefined ? {} : { summary: description }),
         // Markdown: backticks keep the tag from being read as HTML
-        description: `An action of the \`<${tag}>\` live component. htmx sends the component's signed state, ` +
-          `in the \`${stateField}\` field, with the inputs in the component, and swaps in the HTML returned.`,
+        description: `An action of the \`<${tag}>\` live component. The effect-views runtime sends the ` +
+          `component's signed state, in the \`${stateField}\` field, with the inputs in the component, and ` +
+          `updates the component with the HTML returned.`,
         // A label beside the operation in Scalar's reference
         override: { "x-badges": [{ name: "Live", position: "before" }] }
       })
     }
   )
-  return endpoint
+  return endpoint.annotate(Endpoint, { tag, runs: "server" })
 }
 
-/** Marks the endpoint that serves a browser component's code, so Assets.layer finds the component in the API. */
-export class BrowserModule extends Context.Service<BrowserModule, { readonly tag: string }>()(
-  "effect-views/LiveComponent/BrowserModule"
+/** Marks a live component's endpoints, so that Assets.layer finds the component in the API. */
+export class Endpoint extends /*#__PURE__*/ Context.Service<Endpoint, { readonly tag: string; readonly runs: Runs }>()(
+  "effect-views/LiveComponent/Endpoint"
 ) {}
 
-const JavaScript = Schema.String.pipe(HttpApiSchema.asText({ contentType: "text/javascript; charset=utf-8" }))
+const JavaScript = /*#__PURE__*/ Schema.String.pipe(
+  HttpApiSchema.asText({ contentType: "text/javascript; charset=utf-8" })
+)
 
 const moduleEndpointOf = <const Tag extends string>(tag: Tag) =>
   HttpApiEndpoint.get(`${tag}.module`, `/live/${tag}/module.js`, { success: JavaScript })
-    .annotate(BrowserModule, { tag })
+    .annotate(Endpoint, { tag, runs: "browser" })
     .annotate(OpenApi.Description, `The code of the \`<${tag}>\` live component, which runs in the browser.`)
 
 type ActionFields<Action> = Action extends LiveAction.LiveAction<any, infer Fields> ? Fields : never

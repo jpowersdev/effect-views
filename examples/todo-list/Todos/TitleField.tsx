@@ -1,12 +1,43 @@
 /** @jsxImportSource effect-views */
 
+// The title field: its contract and its markup. They are kept apart from
+// Views.ts, which declares the server's endpoints, because everything this
+// module imports is bundled for the browser.
+
+import * as Schema from "effect/Schema"
+
 import { css } from "effect-views/Component"
+import * as LiveAction from "effect-views/LiveAction"
 import * as LiveComponent from "effect-views/LiveComponent"
 import * as On from "effect-views/On"
 import type * as Submission from "effect-views/Submission"
 
 import * as Todo from "../Domain/Todo.js"
-import * as Views from "./Views.js"
+
+/** What the title field renders from, in the browser: what was typed, and what is wrong with it. */
+export class TitleState extends Schema.Class<TitleState>("TitleState")({
+  title: Schema.String,
+  /** The first problem with the title, empty while it is fine or before anything is typed. */
+  problem: Schema.String,
+  /** Whether the list is being checked for the title. */
+  checking: Schema.Boolean
+}) {
+  static readonly empty = new TitleState({ title: "", problem: "", checking: false })
+}
+
+/** Runs as you type. A newer keystroke interrupts the run before it, along with its request. */
+export const edit = LiveAction.make("edit", {
+  payload: { title: Schema.String },
+  concurrency: "switch"
+})
+
+/**
+ * The new todo's title, checked as you type with the form's own schema, then
+ * against the list. It runs in the browser, with the handlers in
+ * TitleField.browser.ts; its endpoint is in the group in Views.ts.
+ */
+export const TitleField = LiveComponent.make("todo-title", { state: TitleState, runs: "browser" })
+  .add(edit)
 
 const style = css`
   :scope { display: block; }
@@ -19,7 +50,7 @@ const style = css`
  * The title field's markup. The server renders it first, inside the form; the
  * browser renders it again with each change, keeping the caret where it is.
  */
-export const View = LiveComponent.view(Views.TitleField, {
+export const View = LiveComponent.view(TitleField, {
   style,
   render: (state, actions) => (
     <>
@@ -54,10 +85,10 @@ export const View = LiveComponent.view(Views.TitleField, {
 })
 
 /** The field as the server last saw it: empty, or as submitted with the problem the server found. */
-export const stateFor = (invalid: Submission.Invalid | undefined): Views.TitleState => {
-  if (invalid === undefined) return Views.TitleState.empty
+export const stateFor = (invalid: Submission.Invalid | undefined): TitleState => {
+  if (invalid === undefined) return TitleState.empty
   const title = invalid.values["title"]
-  return new Views.TitleState({
+  return new TitleState({
     title: typeof title === "string" ? title : "",
     problem: invalid.errors["title"]?.[0] ?? "",
     checking: false

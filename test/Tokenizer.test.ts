@@ -229,3 +229,117 @@ Vitest.describe("Tokenizer", () => {
     Vitest.expect(failure("x = /[/]")).toMatchObject({ message: "Unterminated regular expression", line: 1, column: 5 })
   })
 })
+
+Vitest.describe("Tokenizer tokens", () => {
+  const kindNames: Readonly<Record<number, string>> = {
+    [Tokenizer.Word]: "word",
+    [Tokenizer.Private]: "private",
+    [Tokenizer.Punctuator]: "punctuator",
+    [Tokenizer.String]: "string",
+    [Tokenizer.Number]: "number",
+    [Tokenizer.Regex]: "regex",
+    [Tokenizer.Template]: "template",
+    [Tokenizer.TemplateHead]: "head",
+    [Tokenizer.TemplateMiddle]: "middle",
+    [Tokenizer.TemplateTail]: "tail",
+    [Tokenizer.JsxTagStart]: "<",
+    [Tokenizer.JsxClosingTagStart]: "</",
+    [Tokenizer.JsxTagEnd]: ">",
+    [Tokenizer.JsxSelfClosing]: "/>",
+    [Tokenizer.JsxName]: "name",
+    [Tokenizer.JsxString]: "attribute",
+    [Tokenizer.JsxText]: "text",
+    [Tokenizer.JsxExpressionStart]: "{",
+    [Tokenizer.JsxExpressionEnd]: "}"
+  }
+
+  const tokens = (source: string, options?: Tokenizer.Options) => {
+    const { tokens } = Tokenizer.scan(source, options)
+    return Array.from({ length: tokens.count }, (_, i) => [kindNames[tokens.kinds[i]!], Tokenizer.text(source, tokens, i)])
+  }
+
+  Vitest.it("reads every token, with punctuators whole", () => {
+    Vitest.expect(tokens("x.#y >>>= /re/g.test(`a${b}c${`d`}e`) ?? 1_000n ?.5 : a?.b // c")).toEqual([
+      ["word", "x"],
+      ["punctuator", "."],
+      ["private", "#y"],
+      ["punctuator", ">>>="],
+      ["regex", "/re/g"],
+      ["punctuator", "."],
+      ["word", "test"],
+      ["punctuator", "("],
+      ["head", "`a${"],
+      ["word", "b"],
+      ["middle", "}c${"],
+      ["template", "`d`"],
+      ["tail", "}e`"],
+      ["punctuator", ")"],
+      ["punctuator", "??"],
+      ["number", "1_000n"],
+      ["punctuator", "?"],
+      ["number", ".5"],
+      ["punctuator", ":"],
+      ["word", "a"],
+      ["punctuator", "?."],
+      ["word", "b"]
+    ])
+  })
+
+  Vitest.it("marks line breaks and pure annotations before tokens", () => {
+    const source = "a /* one\n */ b\nc /*#__PURE__*/ d /* @__PURE__ */ new e"
+    const { tokens: scanned } = Tokenizer.scan(source)
+    const flags = Array.from(scanned.flags)
+    Vitest.expect(flags).toEqual([
+      0,
+      Tokenizer.NewlineBefore,
+      Tokenizer.NewlineBefore,
+      Tokenizer.PureBefore,
+      Tokenizer.PureBefore,
+      0
+    ])
+  })
+
+  Vitest.it("reads JSX where an expression can start, with the expressions inside as JavaScript", () => {
+    Vitest.expect(tokens(`x = <a.b c="d" {...e} f:g>h {i < j}<k /></a.b>`, { jsx: true })).toEqual([
+      ["word", "x"],
+      ["punctuator", "="],
+      ["<", "<"],
+      ["name", "a"],
+      ["punctuator", "."],
+      ["name", "b"],
+      ["name", "c"],
+      ["punctuator", "="],
+      ["attribute", `"d"`],
+      ["{", "{"],
+      ["punctuator", "..."],
+      ["word", "e"],
+      ["}", "}"],
+      ["name", "f"],
+      ["punctuator", ":"],
+      ["name", "g"],
+      [">", ">"],
+      ["text", "h "],
+      ["{", "{"],
+      ["word", "i"],
+      ["punctuator", "<"],
+      ["word", "j"],
+      ["}", "}"],
+      ["<", "<"],
+      ["name", "k"],
+      ["/>", "/>"],
+      ["</", "</"],
+      ["name", "a"],
+      ["punctuator", "."],
+      ["name", "b"],
+      [">", ">"]
+    ])
+    // Without the option, or after an operand, `<` compares
+    Vitest.expect(tokens(`a <b> c`, { jsx: true })).toEqual([
+      ["word", "a"],
+      ["punctuator", "<"],
+      ["word", "b"],
+      ["punctuator", ">"],
+      ["word", "c"]
+    ])
+  })
+})

@@ -13,8 +13,7 @@ import * as Submission from "effect-views/Submission"
 
 import * as DataApi from "../DataApi.js"
 import * as Todo from "../Domain/Todo.js"
-import * as TitleField from "./TitleField.js"
-import { TitleState } from "./Views.js"
+import { TitleState, View } from "./TitleField.js"
 
 /** The JSON API's client, typed by the contract the server implements. Requests go to the page's own origin. */
 const client = HttpApiClient.make(DataApi.Api)
@@ -27,7 +26,7 @@ const problemWith = (title: string): string | undefined => {
   return invalid.errors["title"]?.[0] ?? invalid.formErrors[0] ?? "Check the title"
 }
 
-export const TitleFieldHandlers = LiveComponent.browser(TitleField.View, {
+export const TitleFieldHandlers = LiveComponent.browser(View, {
   edit: (state, { title }) =>
     Effect.gen(function* () {
       const problem = problemWith(title)

@@ -8,6 +8,8 @@ import { promisify } from "node:util"
 import * as Vitest from "vitest"
 
 import * as Bundler from "../src/internal/Bundler.js"
+import * as Shake from "../src/internal/Shake.js"
+import * as Tokenizer from "../src/internal/Tokenizer.js"
 
 const repository = Path.resolve(import.meta.dirname, "..")
 
@@ -65,12 +67,17 @@ const importsOf = (text: string): ReadonlyArray<string> =>
  * repository, so that an import left as it was can't resolve. Returns the
  * entry's exports.
  */
-const run = async (root: string, entries: ReadonlyArray<string>, options?: { readonly root?: string }) => {
+const run = async (
+  root: string,
+  entries: ReadonlyArray<string>,
+  options?: { readonly root?: string; readonly shake?: boolean }
+) => {
   const out = await fixture({})
   const result = await Effect.runPromise(Bundler.bundle({
     root: options?.root ?? root,
     prefix: `${out}/assets` as `/${string}`,
-    entries: entries.map((entry) => Path.join(root, entry))
+    entries: entries.map((entry) => Path.join(root, entry)),
+    ...(options?.shake === undefined ? {} : { shake: options.shake })
   }))
   for (const file of result.files) {
     await mkdir(Path.dirname(file.path), { recursive: true })
@@ -83,6 +90,40 @@ const run = async (root: string, entries: ReadonlyArray<string>, options?: { rea
     pathToFileURL(result.entries.get(Path.join(root, entries[0]!))!).href
   ])
   return { exports: JSON.parse(stdout) as unknown, result }
+}
+
+/**
+ * What wouldn't link in the browser: imports of files the bundle doesn't
+ * have, and names imported that the file imported doesn't export.
+ */
+const unlinked = (result: Bundler.Bundle): ReadonlyArray<string> => {
+  const modules = new Map(result.files.map((file) => {
+    const source = decoder.decode(file.body)
+    const scan = Tokenizer.scan(source)
+    return [file.path, { scan, analysis: Shake.analyze(source, scan) }] as const
+  }))
+  const provides = (path: string, name: string, seen: Set<string>): boolean => {
+    const module = modules.get(path)
+    if (module === undefined || seen.has(path)) return false
+    seen.add(path)
+    const { analysis, scan } = module
+    if (analysis.exports.has(name) || analysis.reexports.has(name)) return true
+    return name !== "default" && analysis.stars.some((star) => provides(scan.imports[star]!.specifier, name, seen))
+  }
+  const problems: Array<string> = []
+  for (const [path, { analysis, scan }] of modules) {
+    for (const entry of scan.imports) {
+      if (!modules.has(entry.specifier)) problems.push(`${path} imports ${entry.specifier}, which isn't bundled`)
+    }
+    const imported = [...analysis.bindings.values(), ...analysis.reexports.values()]
+    for (const { imported: name, source } of imported) {
+      const target = scan.imports[source]!.specifier
+      if (name !== "*" && modules.has(target) && !provides(target, name, new Set())) {
+        problems.push(`${path} imports ${name} from ${target}, which doesn't export it`)
+      }
+    }
+  }
+  return problems
 }
 
 const urlOf = (result: Bundler.Bundle, base: string): string => {
@@ -363,8 +404,10 @@ Vitest.describe("Bundler", () => {
   Vitest.it("refuses Node's built-in modules, naming the chain of imports", async () => {
     const root = await fixture({
       "src/a.js": `import "./b.js"`,
-      "src/b.js": `import { createHash } from "node:crypto"`,
-      "src/c.js": `import * as Fs from "fs"`
+      "src/b.js": `import { createHash } from "node:crypto"\ncreateHash("sha256")`,
+      "src/c.js": `import * as Fs from "fs"\nexport const read = Fs.readFile`,
+      // Unused, an import that can't be bundled is dropped
+      "src/d.js": `import { createHash } from "node:crypto"\nexport const d = 1`
     })
     Vitest.expect((await failure(root, ["src/a.js"])).message).toBe(
       "Can't bundle node:crypto for the browser: src/a.js → src/b.js → node:crypto"
@@ -372,30 +415,33 @@ Vitest.describe("Bundler", () => {
     Vitest.expect((await failure(root, ["src/c.js"])).message).toBe(
       "Can't bundle fs for the browser: src/c.js → fs"
     )
+    Vitest.expect(entryText(root, await bundle(root, ["src/d.js"]), "src/d.js")).toBe(";\nexport const d = 1")
   })
 
   Vitest.it("refuses what it can't bundle", async () => {
     const root = await fixture({
       "main.js": `import "./View.tsx"`,
-      "View.tsx": `export const view = <div />`,
+      "View.tsx": `export const view = <p>Fish &amp; chips &bogus;</p>`,
       "common.js": `import "./legacy.cjs"`,
       "legacy.cjs": `module.exports = 1`,
       "data.js": `import data from "./data.json" with { type: "json" }`,
+      "plain.js": `import "./data.json"`,
       "data.json": `{}`,
       "missing.js": `import "./nowhere.js"`,
       "unknown.js": `import "unknown-package"`,
       "broken.js": `export const s = "abc\n`
     })
     Vitest.expect((await failure(root, ["main.js"])).message).toBe(
-      "Can't bundle View.tsx: JSX can't be bundled; run the server from compiled JavaScript, such as tsc's output: " +
-        "main.js → View.tsx"
+      "View.tsx:1:41: Unknown HTML entity &bogus;: main.js → View.tsx"
     )
-    Vitest.expect((await failure(root, ["View.tsx"])).message).toMatch(/^Can't bundle View\.tsx: .*tsc's output$/)
     Vitest.expect((await failure(root, ["common.js"])).message).toBe(
       "Can't bundle legacy.cjs: only ES modules can be bundled, not CommonJS: common.js → legacy.cjs"
     )
     Vitest.expect((await failure(root, ["data.js"])).message).toBe(
       "data.js:1:18: Import attributes can't be bundled: ./data.json"
+    )
+    Vitest.expect((await failure(root, ["plain.js"])).message).toBe(
+      "Can't bundle data.json: only JavaScript, TypeScript and JSX modules can be bundled: plain.js → data.json"
     )
     Vitest.expect((await failure(root, ["missing.js"])).message).toBe(
       "Can't resolve ./nowhere.js (there's no nowhere.js): missing.js → ./nowhere.js"
@@ -417,8 +463,8 @@ Vitest.describe("Bundler", () => {
 
   Vitest.it("gives the same files for the same sources, and new names below a change", async () => {
     const root = await fixture({
-      "main.js": `import "./middle.js"\nimport "./other.js"`,
-      "middle.js": `import "./deep.js"`,
+      "main.js": `import { deep } from "./middle.js"\nimport "./other.js"\nexport const value = deep`,
+      "middle.js": `export { deep } from "./deep.js"`,
       "deep.js": `export const deep = 1`,
       "other.js": `export const other = 1`
     })
@@ -439,12 +485,264 @@ Vitest.describe("Bundler", () => {
     const changed = await bundle(root, ["main.js"])
     for (const name of ["main", "middle", "deep"]) Vitest.expect(urlOf(changed, name)).not.toBe(urlOf(first, name))
     Vitest.expect(urlOf(changed, "other")).toBe(urlOf(first, "other"))
+
+    // Code nothing uses becomes a semicolon, so changing it changes nothing served
+    await write(root, { "deep.js": `export const deep = 2\nexport const unused = () => 3` })
+    const unused = await bundle(root, ["main.js"])
+    await write(root, { "deep.js": `export const deep = 2\nexport const unused = () => 4` })
+    Vitest.expect((await bundle(root, ["main.js"])).files.map((file) => file.path)).toEqual(
+      unused.files.map((file) => file.path)
+    )
   })
 
-  Vitest.it("bundles Effect, so that Node runs the result", { timeout: 60_000 }, async () => {
-    // In the repository, so that effect resolves from its node_modules
-    const root = await fixture({
-      "main.js": [
+  Vitest.describe("tree-shaking", () => {
+    /** A package whose modules do nothing when imported, but for those in sideEffects. */
+    const pure = (files: Readonly<Record<string, string>>, sideEffects: boolean | ReadonlyArray<string> = false) =>
+      fixture({ "package.json": json({ name: "app", type: "module", sideEffects }), ...files })
+
+    const textOf = (result: Bundler.Bundle, base: string) => texts(result).get(urlOf(result, base))!
+
+    Vitest.it("keeps what the entries use, trims export lists, and drops what nothing needs", async () => {
+      const root = await pure({
+        "main.js": `import { a, renamed } from "./lib.js"\nexport const value = a + renamed`,
+        "lib.js": [
+          `import { helper, unusedHelper } from "./helpers.js"`,
+          `const a = helper(1)`,
+          `const b = 2`,
+          `function unused() { return unusedHelper() }`,
+          `export { a, b as renamed, unused }`,
+          `export const alsoUnused = () => b`
+        ].join("\n"),
+        "helpers.js": `export const helper = (x) => x * 10\nexport const unusedHelper = () => 0`,
+        "nothing.js": `export const nothing = 1`
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(result.files).toHaveLength(3)
+      Vitest.expect(textOf(result, "lib")).toBe([
+        `import { helper } from "${urlOf(result, "helpers")}";`,
+        `const a = helper(1)`,
+        `const b = 2`,
+        `;`,
+        `export { a, b as renamed };`,
+        `;`
+      ].join("\n"))
+      Vitest.expect(textOf(result, "helpers")).toBe(`export const helper = (x) => x * 10\n;`)
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: 12 })
+    })
+
+    Vitest.it("follows export * through chains, to the module that defines a name", async () => {
+      const root = await pure({
+        "main.js": `import { deep, middle } from "./barrel.js"\nexport const value = [deep, middle]`,
+        "barrel.js": `export * from "./middle.js"\nexport * from "./other.js"`,
+        "middle.js": `export * from "./deep.js"\nexport const middle = "middle"\nexport const unused = 1`,
+        "deep.js": `export const deep = "deep"\nexport const alsoUnused = 2`,
+        "other.js": `export const other = 3`
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(result.files.map((file) => file.path.replace(/-[0-9a-f]{12}\.js$/, "")).sort())
+        .toEqual(["/assets/barrel", "/assets/deep", "/assets/main", "/assets/middle"])
+      Vitest.expect(textOf(result, "barrel")).toBe(`export * from "${urlOf(result, "middle")}"\n;`)
+      Vitest.expect(textOf(result, "deep")).toBe(`export const deep = "deep"\n;`)
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: ["deep", "middle"] })
+    })
+
+    Vitest.it("keeps only the members read from a namespace, unless it escapes", async () => {
+      const root = await pure({
+        "main.js": [
+          `import * as Read from "./read.js"`,
+          `import * as Escapes from "./escapes.js"`,
+          `export const value = [Read.a, Read?.["b"]]`,
+          `export const keys = Object.keys(Escapes)`
+        ].join("\n"),
+        "read.js": `export const a = 1\nexport const b = 2\nexport const c = 3`,
+        "escapes.js": `export const x = 1\nexport const y = 2`
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(textOf(result, "read")).toBe(`export const a = 1\nexport const b = 2\n;`)
+      Vitest.expect(textOf(result, "escapes")).toBe(`export const x = 1\nexport const y = 2`)
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: [1, 2], keys: ["x", "y"] })
+    })
+
+    Vitest.it("keeps modules with side effects that are imported, even for nothing", async () => {
+      const root = await pure({
+        "main.js": [
+          `import "./polyfill.js"`,
+          `import "./quiet.js"`,
+          `import { unused } from "./effectful.js"`,
+          `import { alsoUnused } from "./quiet.js"`,
+          `export const ran = globalThis.ran`
+        ].join("\n"),
+        "polyfill.js": `globalThis.ran = ["polyfill"]`,
+        "effectful.js": `globalThis.ran.push("effectful")\nexport const unused = 1`,
+        "quiet.js": `export const alsoUnused = 1`
+      }, ["./polyfill.js", "effectful.js"])
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(entryText(root, result, "main.js")).toBe([
+        `import "${urlOf(result, "polyfill")}"`,
+        `;`,
+        `import "${urlOf(result, "effectful")}";`,
+        `;`,
+        `export const ran = globalThis.ran`
+      ].join("\n"))
+      Vitest.expect(textOf(result, "effectful")).toBe(`globalThis.ran.push("effectful")\n;`)
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ ran: ["polyfill", "effectful"] })
+    })
+
+    Vitest.it("drops pure calls nothing uses, also inside arrows, and keeps the rest of an included module", async () => {
+      const root = await pure({
+        "main.js": `import { used } from "./lib.js"\nexport const value = used()`,
+        "lib.js": [
+          `const make = (x) => /*#__PURE__*/ create(x)`,
+          `const created = /*#__PURE__*/ create(1)`,
+          `const constructed = /* @__PURE__ */ new Map()`,
+          `export const used = () => "used"`,
+          `globalThis.libRan = true`,
+          `function create(x) { return x }`
+        ].join("\n")
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(textOf(result, "lib")).toBe([`;`, `;`, `;`, `export const used = () => "used"`, `globalThis.libRan = true`, `;`].join("\n"))
+    })
+
+    Vitest.it("drops classes that do nothing when defined, and keeps those that do", async () => {
+      const root = await pure({
+        "main.js": `import { used } from "./classes.js"\nexport const value = [used.name, globalThis.defined]`,
+        "classes.js": [
+          `class Base {}`,
+          `export class Unused extends Base { static count = 0; method() { sideEffect() } }`,
+          `export class Defines { static { globalThis.defined = "defined" } }`,
+          `export class Calls extends mixin(Base) {}`,
+          `function mixin(base) { return class extends base {} }`,
+          `export { Base as used }`
+        ].join("\n")
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(textOf(result, "classes")).toBe([
+        `class Base {}`,
+        `;`,
+        `export class Defines { static { globalThis.defined = "defined" } }`,
+        `export class Calls extends mixin(Base) {}`,
+        `function mixin(base) { return class extends base {} }`,
+        `export { Base as used }`
+      ].join("\n"))
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: ["Base", "defined"] })
+    })
+
+    Vitest.it("shakes import cycles", async () => {
+      const root = await pure({
+        "main.js": `import { a } from "./a.js"\nexport const value = a()`,
+        "a.js": `import { b } from "./b.js"\nexport const a = () => "a" + b()\nexport const unusedA = 1`,
+        "b.js": `import { a, unusedA } from "./a.js"\nexport const b = () => "b"\nexport const loop = () => a() + unusedA`
+      })
+      const result = await bundle(root, ["main.js"])
+      Vitest.expect(textOf(result, "b")).toBe(`;\nexport const b = () => "b"\n;`)
+      Vitest.expect(importsOf(textOf(result, "a"))).toEqual([urlOf(result, "b")])
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: "ab" })
+    })
+
+    Vitest.it("keeps statements apart where a dropped one separated them", async () => {
+      const root = await pure({
+        "main.js": `import { run } from "./lib.js"\nexport const value = run`,
+        "lib.js": [`export let run = ["first"]`, `function unused() {}`, `(run = [...run, "second"])`].join("\n")
+      })
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: ["first", "second"] })
+    })
+
+    Vitest.it("refuses an import that can't be bundled only if what holds it is kept", async () => {
+      const root = await pure({
+        "main.js": `import { browser } from "./lib.js"\nexport const value = browser`,
+        "server.js": `import { browser } from "./lib.js"\nexport const value = browser`,
+        "lib.js": [
+          `import { createHash } from "node:crypto"`,
+          `import { unknown } from "./missing.js"`,
+          `export const browser = "browser"`,
+          `export const server = () => [createHash, unknown]`
+        ].join("\n")
+      })
+      Vitest.expect((await run(root, ["main.js"])).exports).toEqual({ value: "browser" })
+      await write(root, { "server.js": `import { server } from "./lib.js"\nexport const value = server` })
+      Vitest.expect((await failure(root, ["server.js"])).message).toBe(
+        "Can't bundle node:crypto for the browser: server.js → lib.js → node:crypto"
+      )
+    })
+
+    Vitest.it("serves every module whole with shake: false", async () => {
+      const root = await pure({
+        "main.js": `import { a } from "./lib.js"\nexport const value = a`,
+        "lib.js": `export const a = 1\nexport const b = 2`
+      })
+      const result = await Effect.runPromise(
+        Bundler.bundle({ root, prefix: "/assets", entries: [Path.join(root, "main.js")], shake: false })
+      )
+      Vitest.expect(textOf(result, "lib")).toBe(`export const a = 1\nexport const b = 2`)
+    })
+  })
+
+  Vitest.it("bundles the browser runtime and a live component both ways, linked", { timeout: 60_000 }, async () => {
+    const entries = ["src/client/start.ts", "test/fixtures/Toggle.browser.ts"].map((entry) => Path.join(repository, entry))
+    const [whole, shaken] = await Promise.all([false, true].map((shake) =>
+      Effect.runPromise(Bundler.bundle({ root: repository, prefix: "/assets", entries, shake }))
+    ))
+    Vitest.expect(unlinked(whole!)).toEqual([])
+    Vitest.expect(unlinked(shaken!)).toEqual([])
+    Vitest.expect(shaken!.files.length).toBeLessThan(whole!.files.length)
+    const bytes = (result: Bundler.Bundle) => result.files.reduce((sum, file) => sum + file.body.length, 0)
+    Vitest.expect(bytes(shaken!)).toBeLessThan(bytes(whole!) / 2)
+    for (const entry of entries) {
+      for (const path of shaken!.preloads.get(entry)!) Vitest.expect(texts(shaken!).has(path)).toBe(true)
+    }
+  })
+
+  Vitest.it("compiles JSX, with effect-views' runtime from the repository's sources", { timeout: 60_000 }, async () => {
+    const root = await fixture({}, Path.join(repository, "node_modules", ".cache"))
+    const sources = Path.relative(root, Path.join(repository, "src"))
+    await write(root, {
+      "View.tsx": [
+        `/** @jsxImportSource ${sources} */`,
+        `import * as Html from "${sources}/Html.js"`,
+        ``,
+        `const Card = (props: { readonly title: string; readonly children?: Html.Child }) => (`,
+        `  <section class="card">`,
+        `    <h2>{props.title}</h2>`,
+        `    {props.children}`,
+        `  </section>`,
+        `)`,
+        ``,
+        `export const html = Html.render(`,
+        `  <Card title="Fish &amp; chips">`,
+        `    <p data-count={3} hidden>`,
+        `      Three &mdash;`,
+        `      items`,
+        `    </p>`,
+        `    <ul>{["a", "b"].map((item: string) => <li key={item}>{item}</li>)}</ul>`,
+        `    <>{"<escaped>"}</>`,
+        `  </Card>`,
+        `)`
+      ].join("\n")
+    })
+    const { exports, result } = await run(root, ["View.tsx"], { root: repository })
+    Vitest.expect(exports).toEqual({
+      html: `<section class="card"><h2>Fish &amp; chips</h2><p data-count="3" hidden>Three — items</p>` +
+        `<ul><li data-key="a">a</li><li data-key="b">b</li></ul>&lt;escaped&gt;</section>`
+    })
+    Vitest.expect(result.files.map((file) => file.path)).toContainEqual(
+      Vitest.expect.stringMatching(/\/jsx-runtime-[0-9a-f]{12}\.js$/)
+    )
+  })
+
+  Vitest.describe("on Effect", () => {
+    /** Writes a program in the repository, so that effect resolves, and runs it bundled. */
+    const effect = async (program: ReadonlyArray<string>, options?: { readonly shake?: boolean }) => {
+      const root = await fixture({ "main.js": program.join("\n") }, Path.join(repository, "node_modules", ".cache"))
+      const ran = await run(root, ["main.js"], { root: repository, ...options })
+      Vitest.expect(unlinked(ran.result)).toEqual([])
+      return ran
+    }
+
+    const bytes = (result: Bundler.Bundle) => result.files.reduce((sum, file) => sum + file.body.length, 0)
+
+    Vitest.it("bundles Effect, Schema and Stream, so that Node runs the result", { timeout: 60_000 }, async () => {
+      const { exports, result } = await effect([
         `import * as Effect from "effect/Effect"`,
         `import * as Schema from "effect/Schema"`,
         `import * as Stream from "effect/Stream"`,
@@ -454,17 +752,117 @@ Vitest.describe("Bundler", () => {
         `export const person = Schema.decodeUnknownSync(Person)({ name: "Ada", age: 36 })`,
         `export const invalid = Schema.decodeUnknownExit(Person)({ name: 1 })._tag`,
         `export const streamed = Effect.runSync(Stream.runCollect(Stream.make(1, 2, 3).pipe(Stream.map((n) => n * 10))))`
-      ].join("\n")
-    }, Path.join(repository, "node_modules", ".cache"))
-
-    const { exports, result } = await run(root, ["main.js"], { root: repository })
-    Vitest.expect(exports).toEqual({
-      result: 42,
-      person: { name: "Ada", age: 36 },
-      invalid: "Failure",
-      streamed: [10, 20, 30]
+      ])
+      Vitest.expect(exports).toEqual({
+        result: 42,
+        person: { name: "Ada", age: 36 },
+        invalid: "Failure",
+        streamed: [10, 20, 30]
+      })
+      Vitest.expect(result.files.length).toBeGreaterThan(20)
     })
-    Vitest.expect(result.files.length).toBeGreaterThan(100)
-    Vitest.expect(result.preloads.get(Path.join(root, "main.js"))!.length).toBeGreaterThan(100)
+
+    Vitest.it("ships less of Effect shaken", { timeout: 60_000 }, async () => {
+      const program = [`import * as Effect from "effect/Effect"`, `export const value = Effect.runSync(Effect.succeed(1))`]
+      const shaken = await effect(program)
+      const whole = await effect(program, { shake: false })
+      Vitest.expect(shaken.exports).toEqual({ value: 1 })
+      Vitest.expect(whole.exports).toEqual({ value: 1 })
+      Vitest.expect(shaken.result.files.length).toBeLessThan(whole.result.files.length / 2)
+      Vitest.expect(bytes(shaken.result)).toBeLessThan(bytes(whole.result) / 3)
+    })
+
+    Vitest.it("runs fibers in a FiberMap until their Scope closes", { timeout: 60_000 }, async () => {
+      const { exports } = await effect([
+        `import * as Effect from "effect/Effect"`,
+        `import * as Exit from "effect/Exit"`,
+        `import * as FiberMap from "effect/FiberMap"`,
+        `import * as Scope from "effect/Scope"`,
+        `import * as Stream from "effect/Stream"`,
+        `export const result = await Effect.runPromise(Effect.gen(function* () {`,
+        `  const scope = yield* Scope.make()`,
+        `  const map = yield* FiberMap.make().pipe(Scope.provide(scope))`,
+        `  yield* FiberMap.run(map, "a", Effect.never)`,
+        `  yield* FiberMap.run(map, "b", Effect.never)`,
+        `  const size = yield* FiberMap.size(map)`,
+        `  yield* Scope.close(scope, Exit.void)`,
+        `  const after = yield* FiberMap.size(map)`,
+        `  const odd = yield* Stream.runCollect(Stream.range(1, 6).pipe(Stream.filter((n) => n % 2 === 1)))`,
+        `  return { size, after, odd }`,
+        `}))`
+      ])
+      Vitest.expect(exports).toEqual({ result: { size: 2, after: 0, odd: [1, 3, 5] } })
+    })
+
+    Vitest.it("decodes and encodes structs, unions of tagged structs and classes, and formats errors", { timeout: 60_000 }, async () => {
+      const { exports } = await effect([
+        `import * as Schema from "effect/Schema"`,
+        `const Person = Schema.Struct({ name: Schema.String, age: Schema.NumberFromString })`,
+        `const Shape = Schema.Union([`,
+        `  Schema.TaggedStruct("Circle", { radius: Schema.Number }),`,
+        `  Schema.TaggedStruct("Square", { side: Schema.Number })`,
+        `])`,
+        `class User extends Schema.Class("User")({ id: Schema.Number, name: Schema.String }) {`,
+        `  get label() { return this.id + ": " + this.name }`,
+        `}`,
+        `export const decoded = Schema.decodeUnknownSync(Person)({ name: "Ada", age: "36" })`,
+        `export const encoded = Schema.encodeSync(Person)(decoded)`,
+        `export const shape = Schema.decodeUnknownSync(Shape)({ _tag: "Square", side: 2 })`,
+        `const user = Schema.decodeUnknownSync(User)({ id: 1, name: "Ada" })`,
+        `export const label = user instanceof User ? user.label : "not a User"`,
+        `export const encodedUser = Schema.encodeSync(User)(user)`,
+        `export let error`,
+        `try { Schema.decodeUnknownSync(Shape)({ _tag: "Square", side: "2" }) } catch (cause) { error = cause.message }`
+      ])
+      Vitest.expect(exports).toEqual({
+        decoded: { name: "Ada", age: 36 },
+        encoded: { name: "Ada", age: "36" },
+        shape: { _tag: "Square", side: 2 },
+        label: "1: Ada",
+        encodedUser: { id: 1, name: "Ada" },
+        error: `Expected number\n  at ["side"]`
+      })
+    })
+
+    Vitest.it("builds an HttpApi client", { timeout: 60_000 }, async () => {
+      const { exports } = await effect([
+        `import * as Effect from "effect/Effect"`,
+        `import * as Schema from "effect/Schema"`,
+        `import * as FetchHttpClient from "effect/http/FetchHttpClient"`,
+        `import * as HttpApi from "effect/http-api/HttpApi"`,
+        `import * as HttpApiClient from "effect/http-api/HttpApiClient"`,
+        `import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"`,
+        `import * as HttpApiGroup from "effect/http-api/HttpApiGroup"`,
+        `const Api = HttpApi.make("api").add(`,
+        `  HttpApiGroup.make("todos")`,
+        `    .add(HttpApiEndpoint.get("list", "/todos", { success: Schema.Array(Schema.String) }))`,
+        `    .add(HttpApiEndpoint.post("create", "/todos", { payload: Schema.Struct({ title: Schema.String }), success: Schema.String }))`,
+        `)`,
+        `const client = await Effect.runPromise(`,
+        `  HttpApiClient.make(Api, { baseUrl: "http://localhost:1" }).pipe(Effect.provide(FetchHttpClient.layer))`,
+        `)`,
+        `export const result = [typeof client.todos.list, typeof client.todos.create]`
+      ])
+      Vitest.expect(exports).toEqual({ result: ["function", "function"] })
+    })
+
+    Vitest.it("provides a Context.Service with a Layer", { timeout: 60_000 }, async () => {
+      const { exports } = await effect([
+        `import * as Context from "effect/Context"`,
+        `import * as Effect from "effect/Effect"`,
+        `import * as Layer from "effect/Layer"`,
+        `class Greeter extends Context.Service()("Greeter") {}`,
+        `class Prefix extends Context.Service()("Prefix") {}`,
+        `const GreeterLive = Layer.effect(Greeter)(Effect.gen(function* () {`,
+        `  const prefix = yield* Prefix`,
+        `  return { greet: (name) => prefix + ", " + name }`,
+        `})).pipe(Layer.provide(Layer.succeed(Prefix)("Hello")))`,
+        `export const result = Effect.runSync(Effect.gen(function* () {`,
+        `  const greeter = yield* Greeter`,
+        `  return greeter.greet("Ada")`,
+        `}).pipe(Effect.provide(GreeterLive)))`
+      ])
+      Vitest.expect(exports).toEqual({ result: "Hello, Ada" })
+    })
   })
 })

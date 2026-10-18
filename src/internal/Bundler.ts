@@ -1,9 +1,11 @@
 /**
  * Bundles browser modules when the server starts. Every module the entries
- * import, from the application or from node_modules, becomes one file served
+ * use, from the application or from node_modules, becomes one file served
  * from memory, its imports rewritten to the other files' URLs, so the browser
- * links them as it would the sources. A file's name changes with the module
- * and with everything it imports, so the files can be cached forever.
+ * links them as it would the sources. Modules are tree-shaken first: only the
+ * statements and exports the entries reach are served. A file's name changes
+ * with the module and with everything it imports, so the files can be cached
+ * forever.
  *
  * @internal
  */
@@ -15,7 +17,9 @@ import { readFile, realpath } from "node:fs/promises"
 import { stripTypeScriptTypes } from "node:module"
 import * as Path from "node:path"
 
+import * as Jsx from "./Jsx.js"
 import * as Resolve from "./Resolve.js"
+import * as Shake from "./Shake.js"
 import * as Tokenizer from "./Tokenizer.js"
 
 export interface Options {
@@ -25,6 +29,8 @@ export interface Options {
   readonly prefix: `/${string}`
   /** Files outside this directory are refused. Defaults to process.cwd(). */
   readonly root?: string
+  /** Whether to drop what the entries don't use. Defaults to true; false serves every module whole, for debugging. */
+  readonly shake?: boolean
 }
 
 export interface File {
@@ -61,11 +67,14 @@ interface Module {
   readonly path: string
   /** The path relative to the root, with "/" separators. */
   readonly name: string
-  /** The source, with any types stripped. */
+  /** The source, as JavaScript: JSX compiled and types stripped. */
   readonly source: string
   readonly scan: Tokenizer.Scan
-  /** The real path each import resolved to, in the order of scan.imports. */
-  readonly targets: ReadonlyArray<string>
+  /** The real path each import resolved to, in the order of scan.imports; undefined where it couldn't be. */
+  readonly targets: ReadonlyArray<string | undefined>
+  /** Why an import couldn't be resolved, where it couldn't. */
+  readonly problems: ReadonlyArray<Problem | undefined>
+  readonly sideEffects: boolean
 }
 
 /** A problem with one module, to which bundle adds how the entries lead to it. */
@@ -76,49 +85,51 @@ class Problem extends Data.TaggedError("Problem")<{
   readonly cause?: unknown
 }> {}
 
-const unsupported = (extension: string): string | undefined => {
-  switch (extension) {
-    case ".js":
-    case ".mjs":
-    case ".ts":
-    case ".mts":
-      return undefined
-    case ".tsx":
-      return "JSX can't be bundled; run the server from compiled JavaScript, such as tsc's output"
-    case ".jsx":
-      return "JSX can't be bundled; import compiled JavaScript instead"
-    case ".cjs":
-    case ".cts":
-      return "only ES modules can be bundled, not CommonJS"
-    default:
-      return "only JavaScript and TypeScript modules can be bundled"
-  }
-}
+const supported: ReadonlySet<string> = new Set([".js", ".mjs", ".ts", ".mts", ".jsx", ".tsx"])
+
+const unsupported = (extension: string): string =>
+  extension === ".cjs" || extension === ".cts"
+    ? "only ES modules can be bundled, not CommonJS"
+    : "only JavaScript, TypeScript and JSX modules can be bundled"
 
 const messageOf = (cause: unknown): string => cause instanceof Error ? cause.message : String(cause)
 
-/** Reads a module, strips its types, and finds its comments and imports. */
-const read = (path: string, name: string): Effect.Effect<Omit<Module, "targets">, Problem> =>
+/** A TokenizerError, with where it happened. */
+const located = (name: string, cause: unknown, otherwise: string): Problem =>
+  cause instanceof Tokenizer.TokenizerError
+    ? new Problem({ message: `${name}:${cause.line}:${cause.column}: ${cause.message}` })
+    : new Problem({ message: `${otherwise}: ${messageOf(cause)}`, cause })
+
+/** Reads a module, compiles its JSX, strips its types, and finds its tokens, comments and imports. */
+const read = (path: string, name: string): Effect.Effect<Omit<Module, "targets" | "problems" | "sideEffects">, Problem> =>
   Effect.gen(function* () {
     const extension = Path.extname(path).toLowerCase()
-    const reason = unsupported(extension)
-    if (reason !== undefined) return yield* new Problem({ message: `Can't bundle ${name}: ${reason}` })
-    const text = yield* Effect.tryPromise({
+    if (!supported.has(extension)) {
+      return yield* new Problem({ message: `Can't bundle ${name}: ${unsupported(extension)}` })
+    }
+    let source = yield* Effect.tryPromise({
       try: () => readFile(path, "utf8"),
       catch: (cause) => new Problem({ message: `Can't read ${name}`, cause })
     })
-    const source = extension === ".ts" || extension === ".mts"
-      ? yield* Effect.try({
+    // Node can't strip the types around JSX, so JSX is compiled first
+    if (extension === ".jsx" || extension === ".tsx") {
+      const text = source
+      source = yield* Effect.try({
+        try: () => Jsx.transform(text),
+        catch: (cause) => located(name, cause, `Can't compile the JSX in ${name}`)
+      })
+    }
+    if (extension === ".ts" || extension === ".mts" || extension === ".tsx") {
+      const text = source
+      source = yield* Effect.try({
         try: () => stripTypeScriptTypes(text, { mode: "strip" }),
         catch: (cause) => new Problem({ message: `Can't strip the types from ${name}: ${messageOf(cause)}`, cause })
       })
-      : text
+    }
+    const text = source
     const scan = yield* Effect.try({
-      try: () => Tokenizer.scan(source),
-      catch: (cause) =>
-        cause instanceof Tokenizer.TokenizerError
-          ? new Problem({ message: `${name}:${cause.line}:${cause.column}: ${cause.message}` })
-          : new Problem({ message: `Can't read ${name}: ${messageOf(cause)}`, cause })
+      try: () => Tokenizer.scan(text),
+      catch: (cause) => located(name, cause, `Can't read ${name}`)
     })
     for (const entry of scan.imports) {
       if (entry.attributes) {
@@ -134,11 +145,7 @@ const read = (path: string, name: string): Effect.Effect<Omit<Module, "targets">
 /** Whitespace in place of a comment, keeping the lines of a block comment. */
 const blank = (source: string, comment: Tokenizer.Comment): string => {
   if (source.charCodeAt(comment.start + 1) !== 42) return ""
-  let lines = 0
-  for (let i = comment.start + 2; i < comment.end - 2; i++) {
-    const c = source.charCodeAt(i)
-    if (c === 10 || c === 0x2028 || c === 0x2029 || (c === 13 && source.charCodeAt(i + 1) !== 10)) lines++
-  }
+  const lines = Tokenizer.lines(source, comment.start, comment.end)
   return lines === 0 ? " " : "\n".repeat(lines)
 }
 
@@ -185,12 +192,15 @@ const realOf = (path: string, message: string) =>
     catch: (cause) => new BundlerError({ message, cause })
   })
 
+const byName = <A extends { readonly name: string }>(a: A, b: A): number => a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+
 /**
- * Bundles the entries and everything they import, statically or with
+ * Bundles the entries and what they use, imported statically or with
  * import("literal"), into one file for each module.
  */
 export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
   Effect.gen(function* () {
+    const shake = options.shake ?? true
     const prefix = options.prefix.replace(/\/+$/, "")
     const directory = options.root ?? process.cwd()
     const root = yield* realOf(directory, `Can't find the root directory ${directory}`)
@@ -204,6 +214,7 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
       }
       entries.set(entry, yield* realOf(entry, `Can't find the entry ${entry}`))
     }
+    const entryPaths = new Set(entries.values())
 
     const load = (path: string): Effect.Effect<Module, Problem> =>
       Effect.gen(function* () {
@@ -214,7 +225,7 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
           })
         }
         const module = yield* read(path, name)
-        const targets = yield* Effect.forEach(module.scan.imports, ({ specifier }) =>
+        const resolve = (specifier: string): Effect.Effect<string, Problem> =>
           resolver.resolve(specifier, path).pipe(
             Effect.mapError((error) =>
               new Problem({ message: `Can't resolve ${specifier} (${error.message})`, specifier, cause: error.cause })
@@ -224,21 +235,47 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
                 ? Effect.succeed(resolved.path)
                 : Effect.fail(new Problem({ message: `Can't bundle ${specifier} for the browser`, specifier }))
             )
-          ))
-        return { ...module, targets }
+          )
+        const resolved = yield* Effect.forEach(
+          module.scan.imports,
+          ({ specifier }): Effect.Effect<Result.Result<string, Problem>, Problem> =>
+            // Shaken, an import only matters if what holds it is kept
+            shake ? Effect.result(resolve(specifier)) : Effect.map(resolve(specifier), Result.succeed)
+        )
+        const sideEffects = shake
+          ? yield* resolver.sideEffects(path).pipe(
+            Effect.mapError((error) => new Problem({ message: `Can't read ${name}'s package.json: ${error.message}` }))
+          )
+          : true
+        return {
+          ...module,
+          targets: resolved.map((result) => Result.isSuccess(result) ? result.success : undefined),
+          problems: resolved.map((result) => Result.isFailure(result) ? result.failure : undefined),
+          sideEffects
+        }
       })
 
     // Breadth first, a level at a time, each in order, so that the same files
     // always give the same result, and messages the shortest chain of imports
     const modules = new Map<string, Module>()
+    /** Modules that couldn't be read: shaken, a problem only if something kept imports them. */
+    const unread = new Map<string, Problem>()
     const importers = new Map<string, string | undefined>()
-    let level = [...new Set(entries.values())].sort()
+    let level = [...entryPaths].sort()
     for (const path of level) importers.set(path, undefined)
 
-    const chainOf = (path: string, problem: Problem): string => {
-      const chain: Array<string> = problem.specifier === undefined ? [] : [problem.specifier]
+    const chainOf = (path: string, specifier: string | undefined): string => {
+      const chain: Array<string> = specifier === undefined ? [] : [specifier]
       for (let at: string | undefined = path; at !== undefined; at = importers.get(at)) chain.push(nameOf(at))
       return chain.reverse().join(" → ")
+    }
+
+    const failure = (path: string, problem: Problem) => {
+      const leadsTo = problem.specifier !== undefined || importers.get(path) !== undefined
+      return new BundlerError({
+        message: leadsTo ? `${problem.message}: ${chainOf(path, problem.specifier)}` : problem.message,
+        cause: problem.cause
+      })
     }
 
     while (level.length > 0) {
@@ -248,16 +285,13 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
         const path = level[index]!
         const result = results[index]!
         if (Result.isFailure(result)) {
-          const problem = result.failure
-          const leadsTo = problem.specifier !== undefined || importers.get(path) !== undefined
-          return yield* new BundlerError({
-            message: leadsTo ? `${problem.message}: ${chainOf(path, problem)}` : problem.message,
-            cause: problem.cause
-          })
+          if (!shake || entryPaths.has(path)) return yield* failure(path, result.failure)
+          unread.set(path, result.failure)
+          continue
         }
         modules.set(path, result.success)
         for (const target of result.success.targets) {
-          if (!importers.has(target)) {
+          if (target !== undefined && !importers.has(target)) {
             importers.set(target, path)
             next.push(target)
           }
@@ -266,16 +300,85 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
       level = next
     }
 
-    // Each module by its name, with what it contributes to the hashes of the
-    // modules that reach it: its name, source and where its imports lead
-    const ordered = [...modules.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    const ordered = [...modules.values()].sort(byName)
     const indexes = new Map(ordered.map((module, index) => [module.path, index]))
-    const edges = ordered.map((module) => module.targets.map((target) => indexes.get(target)!))
-    const blanks = ordered.map((module) =>
-      module.scan.comments.map((comment): Edit => ({ ...comment, text: blank(module.source, comment) }))
+    const targetsOf = ordered.map((module) =>
+      module.targets.map((target) => target === undefined ? undefined : indexes.get(target))
     )
+
+    // What stays of each module: its statements and imports
+    let included: Uint8Array
+    let renderings: Array<Shake.Rendering | undefined>
+    if (shake) {
+      const inputs = ordered.map((module, index): Shake.Module => ({
+        analysis: Shake.analyze(module.source, module.scan),
+        targets: targetsOf[index]!,
+        sideEffects: module.sideEffects,
+        entry: entryPaths.has(module.path)
+      }))
+      const marks = Shake.mark(inputs)
+      for (const { module, source } of marks.broken) {
+        const importer = ordered[module]!
+        const problem = importer.problems[source]
+        if (problem !== undefined) return yield* failure(importer.path, problem)
+        const target = importer.targets[source]!
+        return yield* failure(target, unread.get(target)!)
+      }
+      included = marks.included
+      const keepsSideEffects = (index: number) => marks.included[index] === 1 && inputs[index]!.sideEffects
+      renderings = ordered.map((module, index) =>
+        marks.included[index] === 1
+          ? Shake.render(module.source, inputs[index]!, marks, index, keepsSideEffects)
+          : undefined
+      )
+    } else {
+      included = new Uint8Array(ordered.length).fill(1)
+      renderings = ordered.map((module) => ({ replacements: [], kept: module.scan.imports.map((_, at) => at) }))
+    }
+
+    /**
+     * A module's text: dropped statements and comments blanked, import and
+     * export lists trimmed, and each kept specifier as `literalOf` gives it.
+     */
+    const textOf = (index: number, literalOf: (at: number) => string): string => {
+      const module = ordered[index]!
+      const { kept, replacements } = renderings[index]!
+      const edits: Array<Edit> = replacements.map(({ end, parts, start }) => ({
+        start,
+        end,
+        text: parts.map((part) => typeof part === "number" ? literalOf(part) : part).join("")
+      }))
+      // Comments and specifiers outside what was replaced
+      let replaced = 0
+      const outside = (start: number) => {
+        while (replaced < replacements.length && replacements[replaced]!.end <= start) replaced++
+        const replacement = replacements[replaced]
+        return replacement === undefined || start < replacement.start
+      }
+      for (const comment of module.scan.comments) {
+        if (outside(comment.start)) edits.push({ ...comment, text: blank(module.source, comment) })
+      }
+      replaced = 0
+      for (const at of kept) {
+        const { end, start } = module.scan.imports[at]!
+        if (outside(start)) edits.push({ start, end, text: literalOf(at) })
+      }
+      return edit(module.source, edits.sort((a, b) => a.start - b.start))
+    }
+
+    // Each kept module by its name, with what it contributes to the hashes of
+    // the modules that reach it: its name, its text with the specifiers as
+    // written, and where its imports lead
+    const kept = ordered.map((_, index) => included[index] === 1 ? renderings[index]!.kept : [])
+    const edges = ordered.map((_, index) => kept[index]!.map((at) => targetsOf[index]![at]!))
     const contributions = ordered.map((module, index) =>
-      sha256([module.name, edit(module.source, blanks[index]!), ...module.targets.map(nameOf)].join("\0"))
+      included[index] === 1
+        ? sha256([
+          module.name,
+          textOf(index, (at) => module.source.slice(module.scan.imports[at]!.start, module.scan.imports[at]!.end)),
+          ...edges[index]!.map((target) => ordered[target]!.name)
+        ].join("\0"))
+        : ""
     )
 
     // A module's hash covers its name and every module it reaches, itself
@@ -285,6 +388,10 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
     const reached = new Int32Array(ordered.length).fill(-1)
     for (let index = 0; index < ordered.length; index++) {
       const module = ordered[index]!
+      if (included[index] !== 1) {
+        urls.push("")
+        continue
+      }
       const stack = [index]
       reached[index] = index
       while (stack.length > 0) {
@@ -304,26 +411,22 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
     }
 
     const encoder = new TextEncoder()
-    const files = ordered.map((module, index): File => {
-      const edits = [
-        ...blanks[index]!,
-        ...module.scan.imports.map(({ end, quote, start }, at): Edit => ({
-          start,
-          end,
-          text: literal(urls[edges[index]![at]!]!, quote)
-        }))
-      ].sort((a, b) => a.start - b.start)
-      return { path: urls[index]!, contentType, body: encoder.encode(edit(module.source, edits)) }
-    }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+    const files: Array<File> = []
+    ordered.forEach((module, index) => {
+      if (included[index] !== 1) return
+      const text = textOf(index, (at) => literal(urls[targetsOf[index]![at]!]!, module.scan.imports[at]!.quote))
+      files.push({ path: urls[index]!, contentType, body: encoder.encode(text) })
+    })
+    files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
 
     // What each entry imports statically, dependencies first, as the browser evaluates them
     const preloadsOf = (entry: number): ReadonlyArray<string> => {
       const seen = new Set([entry])
       const order: Array<string> = []
       const visit = (index: number): void => {
-        ordered[index]!.scan.imports.forEach(({ kind }, at) => {
-          const target = edges[index]![at]!
-          if (kind === "static" && !seen.has(target)) {
+        kept[index]!.forEach((at, position) => {
+          const target = edges[index]![position]!
+          if (ordered[index]!.scan.imports[at]!.kind === "static" && !seen.has(target)) {
             seen.add(target)
             visit(target)
             order.push(urls[target]!)

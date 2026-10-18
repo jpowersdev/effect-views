@@ -9,7 +9,7 @@ const keyOf = (node: Node): string | null =>
   node.nodeType === Node.ELEMENT_NODE ? (node as Element).getAttribute("data-key") : null
 
 const isComponent = (node: Node): boolean =>
-  node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute("data-live-module")
+  node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute("data-live")
 
 /** What each form field showed when it was last rendered, to tell a change of state from what was typed since. */
 const rendered = new WeakMap<Element, string>()
@@ -135,9 +135,28 @@ const morphChildNodes = (parent: ParentNode, next: ParentNode): void => {
   }
 }
 
-/** Makes the element's contents match the markup. */
-export const morphChildren = (target: Element, html: string): void => {
+const parse = (html: string): DocumentFragment => {
   const template = document.createElement("template")
   template.innerHTML = html
-  morphChildNodes(target, template.content)
+  return template.content
+}
+
+/** Makes the element's contents match the markup. */
+export const morphChildren = (target: Element, html: string): void => {
+  morphChildNodes(target, parse(html))
+}
+
+/**
+ * Makes the element match markup for the element itself, such as a component
+ * rendered again by the server: its attributes and its contents.
+ */
+export const morphElement = (target: Element, html: string): void => {
+  const next = parse(html).firstElementChild
+  if (next === null) throw new Error(`Expected an element, received: ${html.slice(0, 80)}`)
+  if (next.localName !== target.localName) {
+    target.replaceWith(next)
+    return
+  }
+  syncAttributes(target, next)
+  morphChildNodes(target, next)
 }

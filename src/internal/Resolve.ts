@@ -27,6 +27,12 @@ export class ResolveError extends Data.TaggedError("ResolveError")<{
 export interface Resolver {
   /** Resolves a specifier imported by a module, given as its real absolute path, to a real absolute path. */
   readonly resolve: (specifier: string, importer: string) => Effect.Effect<Resolved, ResolveError>
+  /**
+   * Whether merely importing a module may do something, from its package's
+   * "sideEffects": true when absent, false when false, or whether one of its
+   * globs matches.
+   */
+  readonly sideEffects: (path: string) => Effect.Effect<boolean, ResolveError>
 }
 
 type Json = null | boolean | number | string | ReadonlyArray<Json> | JsonObject
@@ -121,6 +127,56 @@ const targetOf = (
 
 const posix = (path: string): string => path.split(Path.sep).join("/")
 
+/** The sources a TypeScript or JSX module may mean by a JavaScript path, in the order tsc tries them. */
+const sourcesOf = (path: string): ReadonlyArray<string> => {
+  const extension = Path.extname(path)
+  const base = path.slice(0, -extension.length)
+  switch (extension) {
+    case ".js":
+      return [`${base}.ts`, `${base}.tsx`, `${base}.jsx`]
+    case ".mjs":
+      return [`${base}.mts`]
+    case ".jsx":
+      return [`${base}.tsx`]
+    default:
+      return []
+  }
+}
+
+/**
+ * A "sideEffects" glob as bundlers read it: relative to the package, and
+ * matching anywhere when it has no "/", as in "*.css".
+ */
+const globOf = (pattern: string): RegExp => {
+  let glob = pattern.replace(/^\.\//, "")
+  if (!glob.includes("/")) glob = `**/${glob}`
+  let regex = ""
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]!
+    if (c === "*" && glob[i + 1] === "*") {
+      const slash = glob[i + 2] === "/"
+      regex += slash ? "(?:.*/)?" : ".*"
+      i += slash ? 2 : 1
+    } else if (c === "*") {
+      regex += "[^/]*"
+    } else if (c === "?") {
+      regex += "[^/]"
+    } else if (c === "{") {
+      const close = glob.indexOf("}", i)
+      if (close === -1) {
+        regex += "\\{"
+      } else {
+        const options = glob.slice(i + 1, close).split(",").map((option) => option.replace(/[.+^$()|[\]\\]/g, "\\$&"))
+        regex += `(?:${options.join("|")})`
+        i = close
+      }
+    } else {
+      regex += c.replace(/[.+^$()|[\]\\{}]/g, "\\$&")
+    }
+  }
+  return new RegExp(`^${regex}$`)
+}
+
 /**
  * A resolver, with caches for one bundle. `display` shows a path in messages,
  * such as relative to the root.
@@ -213,10 +269,11 @@ export const make = (display: (path: string) => string): Resolver => {
         return yield* new ResolveError({ message: "it isn't a valid file URL", cause })
       }
       if (yield* isFile(path)) return yield* file(path)
-      // TypeScript sources import "./x.js" for "./x.ts"
-      if (/\.m?ts$/.test(importer)) {
-        const source = path.replace(/\.js$/, ".ts").replace(/\.mjs$/, ".mts")
-        if (source !== path && (yield* isFile(source))) return yield* file(source)
+      // TypeScript and JSX sources import "./x.js" for "./x.ts", "./x.tsx" or "./x.jsx"
+      if (/\.(m?ts|tsx|jsx)$/.test(importer)) {
+        for (const source of sourcesOf(path)) {
+          if (yield* isFile(source)) return yield* file(source)
+        }
       }
       return yield* new ResolveError({ message: `there's no ${display(path)}` })
     })
@@ -344,7 +401,25 @@ export const make = (display: (path: string) => string): Resolver => {
     return bare(specifier, importer)
   }
 
-  return { resolve }
+  const globs = new Map<string, RegExp>()
+
+  const sideEffects = (path: string) =>
+    Effect.gen(function* () {
+      const scope = yield* scopeOf(Path.dirname(path))
+      if (scope === undefined) return true
+      const value = (yield* packageOf(scope))?.["sideEffects"]
+      if (value === false) return false
+      if (value === undefined || value === null || !isArray(value)) return true
+      const relative = posix(Path.relative(scope, path))
+      return value.some((pattern) => {
+        if (typeof pattern !== "string") return false
+        let glob = globs.get(pattern)
+        if (glob === undefined) globs.set(pattern, glob = globOf(pattern))
+        return glob.test(relative)
+      })
+    })
+
+  return { resolve, sideEffects }
 }
 
 /** A path relative to a directory, with "/" separators, for messages and file names. */

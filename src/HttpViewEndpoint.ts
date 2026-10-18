@@ -107,7 +107,7 @@ export function del<
  * An HTML fragment sent as a server-sent event. htmx swaps it into the
  * elements that listen for its name; see View.derive's Subscribe.
  */
-export const HtmlEvent = Schema.Struct({
+export const HtmlEvent = /*#__PURE__*/ Schema.Struct({
   id: Schema.optional(Schema.String),
   event: Schema.String,
   data: Html.FromString

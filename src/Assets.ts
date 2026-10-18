@@ -55,9 +55,10 @@ export interface Options {
    */
   readonly files?: Readonly<Record<string, string | URL>>
   /**
-   * The application's API. Live components that run in the browser are found
-   * in it, by their endpoints, and their modules are bundled with the
-   * effect-views runtime when the layer is built, for the head to load.
+   * The application's API. Live components are found in it, by their
+   * endpoints: when it has any, the effect-views runtime is bundled when the
+   * layer is built, for the head to load, with the modules of the components
+   * that run in the browser.
    *
    * ```ts
    * Assets.layer({ api: Api })
@@ -124,17 +125,17 @@ const headTags = (
     manifest.modules.map((src) => Html.element("script", { type: "module", src, nonce }))
   )
 
-/** The tags of the live components in the API that run in the browser, by their module endpoints. */
-const browserComponents = (api: HttpApi.HttpApi<string, any>): ReadonlyArray<string> => {
-  const tags: Array<string> = []
+/** The live components in the API, by tag, and where each runs, from their endpoints. */
+const liveComponents = (api: HttpApi.HttpApi<string, any>): ReadonlyMap<string, LiveComponent.Runs> => {
+  const components = new Map<string, LiveComponent.Runs>()
   HttpApi.reflect(api, {
     onGroup: () => {},
     onEndpoint: ({ endpoint }) => {
-      const module = Context.getOrUndefined(endpoint.annotations, LiveComponent.BrowserModule)
-      if (module !== undefined) tags.push(module.tag)
+      const live = Context.getOrUndefined(endpoint.annotations, LiveComponent.Endpoint)
+      if (live !== undefined) components.set(live.tag, live.runs)
     }
   })
-  return tags
+  return components
 }
 
 /** The runtime's entry: compiled JavaScript beside this module, or its TypeScript source when run from source. */
@@ -143,12 +144,13 @@ const runtimeEntry = (): string => {
   return existsSync(compiled) ? compiled : fileURLToPath(new URL("./client/start.ts", import.meta.url))
 }
 
-const bundleBrowserComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${string}`) =>
+const bundleLiveComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${string}`) =>
   Effect.gen(function* () {
-    const tags = browserComponents(api)
-    if (tags.length === 0) return undefined
+    const components = liveComponents(api)
+    if (components.size === 0) return undefined
     const files = new Map<string, string>()
-    for (const tag of tags) {
+    for (const [tag, runs] of components) {
+      if (runs !== "browser") continue
       const definition = LiveComponent.browserDefinition(tag)
       if (definition === undefined) {
         return yield* new AssetsError({
@@ -180,7 +182,8 @@ const bundleBrowserComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${
 
 /**
  * Builds the stylesheet for every component defined so far, with htmx unless
- * left out, and bundles the live components in the API that run in the browser.
+ * left out, and bundles the effect-views runtime when the API has live
+ * components, with the modules of those that run in the browser.
  */
 export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
   Effect.gen(function* () {
@@ -193,6 +196,7 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
     const modulePreloads: Array<string> = []
     const urls = new Map<string, string>()
     let live: ReadonlyMap<string, LiveModule> = new Map()
+    let runtime = false
 
     const add = (name: string, extension: string, contentType: string, body: Uint8Array): File => {
       const fileName = `${name}-${hash(body)}.${extension}`
@@ -230,12 +234,13 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
     }
 
     if (options?.api !== undefined) {
-      const bundled = yield* bundleBrowserComponents(options.api, prefix)
+      const bundled = yield* bundleLiveComponents(options.api, prefix)
       if (bundled !== undefined) {
         for (const file of bundled.files) files.set(file.path, file)
         modules.push(bundled.module)
         modulePreloads.push(...bundled.preloads)
         live = bundled.live
+        runtime = true
       }
     }
 
@@ -249,6 +254,7 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       urls,
       files,
       components: new Set(included.map((definition) => definition.tag)),
+      runtime,
       live
     }
   })

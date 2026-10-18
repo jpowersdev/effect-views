@@ -1,3 +1,4 @@
+import * as Duration from "effect/Duration"
 import * as Schema from "effect/Schema"
 
 export const TypeId = "~effect-views/LiveAction" as const
@@ -16,6 +17,8 @@ export interface LiveAction<Name extends string, Fields extends Schema.Struct.Fi
   readonly description: string | undefined
   /** What happens when the action runs again before the last run finishes; see Options. */
   readonly concurrency: Concurrency
+  /** How long to wait, in milliseconds, for events to stop before running; see Options. */
+  readonly debounce: number | undefined
 }
 
 /**
@@ -40,12 +43,17 @@ export interface Options<Fields extends Schema.Struct.Fields> {
   readonly description?: string
   /**
    * What happens when the action runs again before the last run finishes.
-   * Defaults to "parallel". With "switch", only the latest run finishes: in the
-   * browser the earlier fiber is interrupted, which also aborts its requests,
-   * and on the server htmx drops the earlier request. Waiting first with
-   * `Effect.sleep` then debounces the action.
+   * Defaults to "parallel". With "switch", only the latest run finishes: the
+   * earlier one is interrupted, which also aborts its requests, whether the
+   * component runs on the server or in the browser.
    */
   readonly concurrency?: Concurrency
+  /**
+   * Waits for events to stop for this long before running, such as "200
+   * millis" for a search as you type: each event starts the wait again, and
+   * only the last one runs. It implies "switch".
+   */
+  readonly debounce?: Duration.Input
 }
 
 /**
@@ -69,6 +77,7 @@ export const make = <const Name extends string, const Fields extends Schema.Stru
     name,
     payload: Schema.Struct(options?.payload ?? ({} as Fields)),
     description: options?.description,
-    concurrency: options?.concurrency ?? "parallel"
+    concurrency: options?.debounce === undefined ? options?.concurrency ?? "parallel" : "switch",
+    debounce: options?.debounce === undefined ? undefined : Duration.toMillis(options.debounce)
   })
 }

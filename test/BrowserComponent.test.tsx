@@ -84,7 +84,9 @@ Vitest.describe("LiveComponent in the browser", () => {
   Vitest.it("renders its state as JSON, its module, and its actions as event bindings", () => {
     const body = Html.render(<Toggle.View state={initial} />)
     // Without Assets.layer, the module comes from the component's own endpoint
-    Vitest.expect(body).toMatch(/^<test-toggle data-live-module="\/live\/test-toggle\/module.js" data-live-state="[^"]+" data-component>/)
+    Vitest.expect(body).toMatch(
+      /^<test-toggle data-live="browser" data-live-module="\/live\/test-toggle\/module.js" data-live-state="[^"]+" data-component>/
+    )
     Vitest.expect(JSON.parse(attribute(body, "data-live-state")!)).toEqual({ on: false, label: "Lamp", count: 0 })
     Vitest.expect(JSON.parse(attribute(body, "data-on-click")!)).toEqual([{ _tag: "Action", action: "toggle", payload: {} }])
     // Values known when rendering are encoded; placeholders are read when the event happens
@@ -153,13 +155,32 @@ Vitest.describe("LiveComponent in the browser", () => {
 })
 
 Vitest.describe("LiveComponent on the server", () => {
-  Vitest.it("asks htmx to replace a request in flight for switch actions", () => {
+  Vitest.it("tells the runtime how to run switch and debounced actions", () => {
     const Search = LiveComponent.make("test-search", { state: Schema.Struct({ query: Schema.String }) })
-      .add(LiveAction.make("search", { payload: { query: Schema.String }, concurrency: "switch" }))
+      .add(LiveAction.make("search", { payload: { query: Schema.String }, debounce: "200 millis" }))
+      .add(LiveAction.make("clear", { concurrency: "switch" }))
     const SearchView = LiveComponent.view(Search, {
-      render: (state, actions) => <input name="query" value={state.query} {...actions.search()} />
+      render: (state, actions) => (
+        <>
+          <input name="query" value={state.query} {...On.input(actions.search())} />
+          <button {...On.click(actions.clear())} />
+        </>
+      )
     })
-    Vitest.expect(Html.render(<SearchView state={{ query: "" }} />)).toContain(`hx-sync="this:replace"`)
+    const body = Html.render(<SearchView state={{ query: "" }} />)
+    Vitest.expect(JSON.parse(attribute(body, "data-on-input")!)).toEqual([
+      { _tag: "Server", action: "search", url: "/live/test-search/search", payload: {}, concurrency: "switch", debounce: 200 }
+    ])
+    Vitest.expect(JSON.parse(attribute(body, "data-on-click")!)[0].concurrency).toBe("switch")
+  })
+
+  Vitest.it("needs the runtime, which Assets.layer bundles when the API has live components", async () => {
+    const Counter = LiveComponent.make("test-needs-runtime", { state: Schema.Struct({}) }).add(LiveAction.make("go"))
+    const CounterView = LiveComponent.view(Counter, { render: () => <p /> })
+    const withoutApi = await Effect.runPromise(Assets.make({ htmx: false }))
+    Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
+      Effect.provideService(Assets.Assets, withoutApi)
+    ))).toThrow(/needs the effect-views runtime; give Assets.layer the API/)
   })
 })
 

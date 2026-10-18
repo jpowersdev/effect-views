@@ -14,8 +14,6 @@ import { join } from "node:path"
 
 import * as DataApi from "../examples/todo-list/DataApi.js"
 import * as Http from "../examples/todo-list/Http.js"
-// The example's own copy, whose registry has its components
-import * as Assets from "effect-views/Assets"
 
 const makeApp = (filename = ":memory:") => HttpRouter.toWebHandler(
   Http.Routes.pipe(
@@ -24,8 +22,7 @@ const makeApp = (filename = ":memory:") => HttpRouter.toWebHandler(
       NodeHttpPlatform.layer,
       Etag.layer,
       SqliteClient.layer({ filename }),
-      // Without the API: its title field is bundled from compiled JavaScript, and these tests run the TypeScript
-      Assets.layer({ extensions: ["sse"] })
+      Http.AssetsLayer
     ))
   ),
   { disableLogger: true }

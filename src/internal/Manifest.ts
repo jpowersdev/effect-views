@@ -14,7 +14,9 @@ export interface Definition {
   readonly style: string | undefined
 }
 
-const definitions = new Map<string, Definition>()
+// Shared by every copy of this module, such as one from source and one compiled, so Assets.layer sees every component
+const definitions: Map<string, Definition> =
+  ((globalThis as any)[Symbol.for("effect-views/Component/definitions")] ??= new Map())
 
 /** @internal Called by Component.make. */
 export const register = (definition: Definition): void => {
@@ -58,12 +60,14 @@ export interface Manifest {
   readonly files: ReadonlyMap<string, File>
   /** Components whose styles the files include. */
   readonly components: ReadonlySet<string>
+  /** Whether the head loads the effect-views runtime, which live components need. */
+  readonly runtime: boolean
   /** Live components that run in the browser, by tag. */
   readonly live: ReadonlyMap<string, LiveModule>
 }
 
 /** The assets built when Assets.layer started, available while handling each request. */
-export class Assets extends Context.Service<Assets, Manifest>()("effect-views/Assets") {}
+export class Assets extends /*#__PURE__*/ Context.Service<Assets, Manifest>()("effect-views/Assets") {}
 
 /** The assets for the request being handled, if Assets.layer is in use. */
 export const current = (): Manifest | undefined => {

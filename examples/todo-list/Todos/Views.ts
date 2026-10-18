@@ -8,6 +8,7 @@ import * as LiveAction from "effect-views/LiveAction"
 import * as LiveComponent from "effect-views/LiveComponent"
 
 import * as Todo from "../Domain/Todo.js"
+import { TitleField } from "./TitleField.js"
 
 export const list = HttpViewEndpoint.get("list", "/")
   .annotate(OpenApi.Summary, "The todo list")
@@ -29,40 +30,16 @@ export class SearchState extends Schema.Class<SearchState>("SearchState")({
   static readonly empty = new SearchState({ query: "", matches: [] })
 }
 
-/** Runs as you type. An empty search input is not submitted at all. */
+/** Runs once typing pauses; a newer search replaces one in flight. An empty search input is not submitted at all. */
 export const search = LiveAction.make("search", {
   payload: { query: Schema.optionalKey(Schema.String) },
-  description: "Search todos"
+  description: "Search todos",
+  debounce: "200 millis"
 })
 
 /** Searches the list as you type; see Search.tsx and Http.ts. */
 export const Search = LiveComponent.make("todo-search", { state: SearchState })
   .add(search)
-
-/** What the title field renders from, in the browser: what was typed, and what is wrong with it. */
-export class TitleState extends Schema.Class<TitleState>("TitleState")({
-  title: Schema.String,
-  /** The first problem with the title, empty while it is fine or before anything is typed. */
-  problem: Schema.String,
-  /** Whether the list is being checked for the title. */
-  checking: Schema.Boolean
-}) {
-  static readonly empty = new TitleState({ title: "", problem: "", checking: false })
-}
-
-/** Runs as you type. A newer keystroke interrupts the run before it, along with its request. */
-export const edit = LiveAction.make("edit", {
-  payload: { title: Schema.String },
-  concurrency: "switch"
-})
-
-/**
- * The new todo's title, checked as you type with the form's own schema, then
- * against the list. It runs in the browser; see TitleField.tsx and
- * TitleField.browser.ts.
- */
-export const TitleField = LiveComponent.make("todo-title", { state: TitleState, runs: "browser" })
-  .add(edit)
 
 /** The todos' pages, fragments, and live components; listed as "Todos" under "Views". */
 export const group = HttpApiGroup.make("todosViews")

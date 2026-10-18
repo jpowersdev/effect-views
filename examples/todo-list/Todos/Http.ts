@@ -11,7 +11,8 @@ import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
 import * as Html from "./Html.js"
 import * as Search from "./Search.js"
-import * as TitleField from "./TitleField.browser.js"
+import { TitleField } from "./TitleField.js"
+import { TitleFieldHandlers } from "./TitleField.browser.js"
 import * as Views from "./Views.js"
 
 /** The JSON API for todos. */
@@ -72,6 +73,6 @@ export const TodosViewsLayer = HttpApiBuilder.group(
             Effect.map(todos.list, (items) =>
               Html.page(request, Html.app(items, invalid), { status: 422 })))
         ))
-      .pipe(LiveComponent.handle(Views.Search, Views.TitleField))
+      .pipe(LiveComponent.handle(Views.Search, TitleField))
   })
-).pipe(Layer.provide([Todos.layer, SearchHandlers, TitleField.TitleFieldHandlers]))
+).pipe(Layer.provide([Todos.layer, SearchHandlers, TitleFieldHandlers]))

@@ -1,8 +1,8 @@
 /**
- * Event bindings for live components that run in the browser. A binding is
- * data in an attribute, such as `data-on-click='[…]'`, which the effect-views
- * runtime reads when the event happens: there is no code in the markup, so it
- * works under a strict content security policy.
+ * Event bindings for live components. A binding is data in an attribute, such
+ * as `data-on-click='[…]'`, which the effect-views runtime reads when the event
+ * happens: there is no code in the markup, so it works under a strict content
+ * security policy.
  *
  * ```tsx
  * <input value={state.query} {...On.input(actions.type({ query: On.value }))} />
@@ -35,14 +35,33 @@ export const placeholderKind = (placeholder: Placeholder<unknown>): "value" | "c
   placeholder[PlaceholderTypeId]
 
 /**
- * Something for the runtime to do when an event happens: for now, running one
- * of the component's actions, made by the `actions` a view's render receives.
+ * Something for the runtime to do when an event happens: running one of the
+ * component's actions, as made by the `actions` a view's render receives.
  */
-export interface Command {
+export type Command = BrowserAction | ServerAction
+
+/** An action of a component that runs in the browser, run by its handler there. */
+export interface BrowserAction {
   readonly _tag: "Action"
   readonly action: string
   /** The action's values, encoded, with placeholders where they are read from the element. */
   readonly payload: Readonly<Record<string, unknown>>
+}
+
+/**
+ * An action of a component that runs on the server: the runtime posts the
+ * inputs in the component, with its signed state, to the action's endpoint,
+ * and updates the component with the HTML it returns.
+ */
+export interface ServerAction {
+  readonly _tag: "Server"
+  readonly action: string
+  readonly url: string
+  /** Values given where the action is used, encoded like a form's; they replace inputs of the same name. */
+  readonly payload: Readonly<Record<string, string | ReadonlyArray<string>>>
+  readonly concurrency: "switch" | "parallel"
+  /** Milliseconds to wait for events to stop before posting. */
+  readonly debounce?: number
 }
 
 /** Attributes binding an event to commands; spread them onto an element. */

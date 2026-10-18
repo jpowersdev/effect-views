@@ -32,9 +32,10 @@ over.
 `Form.derive` uses the endpoint's path as the form action and its payload schema
 to constrain control names. Labels and layout are written by hand.
 
-Type in "Find a todo" to search the list. It is a live component: each search
-runs on the server, with the same Todos service as the handlers, and htmx swaps
-in the results. Its contract is in [`Todos/Views.ts`](todo-list/Todos/Views.ts),
+Type in "Find a todo" to search the list. It is a live component that runs on
+the server: once typing pauses, the effect-views runtime posts the search, which
+runs with the same Todos service as the handlers, and updates the component in
+place with the results, keeping the caret where it is. Its contract is in [`Todos/Views.ts`](todo-list/Todos/Views.ts),
 its markup in [`Todos/Search.tsx`](todo-list/Todos/Search.tsx), and its handler
 in [`Todos/Http.ts`](todo-list/Todos/Http.ts); its action is an endpoint
 in the same group as the todo pages.
@@ -61,9 +62,10 @@ The title field runs in the browser. As you type, it checks the title with
 the same schema, and the same messages, as the form's handler, and shows how
 many characters are left. When you pause, it asks the JSON API whether the
 title is already on the list, with a client `HttpApiClient` derives from the
-API; each keystroke interrupts the check before it. Its contract is in
-[`Todos/Views.ts`](todo-list/Todos/Views.ts), its markup in
-[`Todos/TitleField.tsx`](todo-list/Todos/TitleField.tsx), and its handler in
+API; each keystroke interrupts the check before it. Its contract and markup
+are in [`Todos/TitleField.tsx`](todo-list/Todos/TitleField.tsx), apart from the
+server's endpoints, since what it imports is bundled for the browser, and its
+handler is in
 [`Todos/TitleField.browser.ts`](todo-list/Todos/TitleField.browser.ts), which
 `Assets.layer` bundles when the server starts. The form still submits the
 title, and the server still checks it.
@@ -168,7 +170,8 @@ server and the browser both import; the handlers are in
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.
 
-`pnpm example` also starts the orders demo. `pnpm dev` compiles the library
-and examples as they change, and restarts the demo when they do; reload the
-page to see changes to a component that runs in the browser. See the
+`pnpm example` also starts the orders demo. `pnpm dev` runs it from source and
+restarts it when its files change, which bundles the components that run in
+the browser again; reload the page to see the changes. After editing `src/`,
+restart the command to rebuild the library. See the
 [root check commands](../README.md#checks) for type checking and tests.

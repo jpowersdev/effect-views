@@ -1,9 +1,11 @@
 /**
- * The effect-views runtime for live components that run in the browser.
- * Assets.layer bundles it with each component's module, and the page head
- * loads it. It finds each component's element, loads the component's module,
- * runs its actions when the events bound with On happen, and renders the
- * component again when its state changes.
+ * The effect-views runtime for live components. Assets.layer bundles it, with
+ * the modules of the components that run in the browser, and the page head
+ * loads it. It finds each component's element and runs its actions when the
+ * events bound with On happen: on the server, by posting to the action's
+ * endpoint and updating the component with the HTML returned; in the browser,
+ * by loading the component's module, running the action's handler, and
+ * rendering the component again when its state changes.
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -19,16 +21,16 @@ import * as SubscriptionRef from "effect/SubscriptionRef"
 import * as Html from "../Html.js"
 import * as LiveComponent from "../LiveComponent.js"
 import * as On from "../On.js"
-import { morphChildren } from "./morph.js"
+import { morphChildren, morphElement } from "./morph.js"
 
-const selector = "[data-live-module]"
+const selector = "[data-live]"
 
 /** The events On binds; each is handled once, on the document. */
 const events = ["click", "input", "change", "submit", "keydown", "keyup", "focusin", "focusout"] as const
 
 interface Instance {
-  /** Runs an action with its values; actions that arrive before the component's module loads wait for it. */
-  readonly run: (action: string, values: Record<string, unknown>) => void
+  /** Runs a command from a binding on `element`, inside the component. */
+  readonly run: (command: On.Command, element: Element) => void
   readonly close: () => void
 }
 
@@ -54,20 +56,110 @@ interface Shared {
   readonly scope: Scope.Scope
 }
 
-const mount = (element: HTMLElement, shared: Shared): void => {
+/** Runs an action's effects: "switch" ones replace their own earlier run; the others run side by side. */
+interface Runner {
+  readonly latest: (key: string, effect: Effect.Effect<void>) => void
+  readonly all: (effect: Effect.Effect<void>) => void
+}
+
+const runnerIn = (scope: Scope.Scope): Runner => {
+  const latest = Effect.runSync(FiberMap.makeRuntime<never, string>().pipe(Effect.provideService(Scope.Scope, scope)))
+  const all = Effect.runSync(FiberSet.makeRuntime<never>().pipe(Effect.provideService(Scope.Scope, scope)))
+  return { latest: (key, effect) => void latest(key, effect), all: (effect) => void all(effect) }
+}
+
+const closeScope = (scope: Scope.Closeable) => () => {
+  Effect.runFork(Scope.close(scope, Exit.void))
+}
+
+// On the server ------------------------------------------------------------------
+
+/** The component's inputs, as a form would submit them, leaving out those of components inside it. */
+const formValues = (host: Element): URLSearchParams => {
+  const values = new URLSearchParams()
+  const fields = host.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    "input[name], select[name], textarea[name]"
+  )
+  for (const field of Array.from(fields)) {
+    if (field.disabled || field.closest(selector) !== host) continue
+    if (field instanceof HTMLSelectElement) {
+      for (const option of Array.from(field.selectedOptions)) values.append(field.name, option.value)
+      continue
+    }
+    if (field instanceof HTMLInputElement) {
+      if ((field.type === "checkbox" || field.type === "radio") && !field.checked) continue
+      if (["file", "submit", "button", "reset", "image"].includes(field.type)) continue
+    }
+    values.append(field.name, field.value)
+  }
+  return values
+}
+
+const post = (host: Element, command: On.ServerAction): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    if (command.debounce !== undefined) yield* Effect.sleep(command.debounce)
+    const body = formValues(host)
+    for (const [name, value] of Object.entries(command.payload)) {
+      body.delete(name)
+      for (const item of typeof value === "string" ? [value] : value) body.append(name, item)
+    }
+    // Interrupting the fiber, such as for a newer run of a "switch" action, aborts the request
+    const response = yield* Effect.tryPromise((signal) =>
+      fetch(command.url, { method: "POST", body, headers: { accept: "text/html" }, signal })
+    )
+    const html = yield* Effect.tryPromise(() => response.text())
+    if (!response.ok) return yield* Effect.fail(new Error(`${response.status} ${response.statusText}: ${html}`))
+    morphElement(host, html)
+  })
+
+const mountServer = (element: HTMLElement): void => {
+  const tag = element.localName
+  const scope = Effect.runSync(Scope.make())
+  const runner = runnerIn(scope)
+  instances.set(element, {
+    run: (command) => {
+      if (command._tag !== "Server") return report(tag, `runs on the server, but received ${command._tag}`)
+      const run = post(element, command).pipe(
+        Effect.catchCause((cause) => Effect.sync(() => report(tag, `${command.action} failed`, cause)))
+      )
+      if (command.concurrency === "switch") runner.latest(command.action, run)
+      else runner.all(run)
+    },
+    close: closeScope(scope)
+  })
+}
+
+// In the browser -----------------------------------------------------------------
+
+/** A binding's value when the event happens: what was typed, or whether a box is checked. */
+const read = (element: Element, kind: "value" | "checked"): unknown => {
+  const field = element as Partial<HTMLInputElement>
+  return kind === "checked" ? field.checked === true : String(field.value ?? "")
+}
+
+const resolve = (payload: Readonly<Record<string, unknown>>, element: Element): Record<string, unknown> => {
+  const values: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    values[key] = On.isPlaceholder(value) ? read(element, On.placeholderKind(value)) : value
+  }
+  return values
+}
+
+const mountBrowser = (element: HTMLElement, shared: Shared): void => {
   const tag = element.localName
   const waiting: Array<readonly [string, Record<string, unknown>]> = []
   let dispatch: ((action: string, values: Record<string, unknown>) => void) | undefined
   const scope = Effect.runSync(Scope.make())
   instances.set(element, {
-    run: (action, values) => {
-      if (dispatch === undefined) waiting.push([action, values])
-      else dispatch(action, values)
+    run: (command, bound) => {
+      if (command._tag !== "Action") return report(tag, `runs in the browser, but received ${command._tag}`)
+      // Values are read when the event happens, even when the module is still loading
+      const values = resolve(command.payload, bound)
+      if (dispatch === undefined) waiting.push([command.action, values])
+      else dispatch(command.action, values)
     },
     // Interrupts the component's actions and stops rendering it
-    close: () => {
-      Effect.runFork(Scope.close(scope, Exit.void))
-    }
+    close: closeScope(scope)
   })
 
   const start = Effect.gen(function* () {
@@ -85,9 +177,7 @@ const mount = (element: HTMLElement, shared: Shared): void => {
     const context = layer === undefined
       ? Context.empty()
       : yield* Layer.buildWithMemoMap(shared.memoMap, shared.scope)(layer as Layer.Layer<unknown>)
-    // "switch" actions replace their own earlier run; the others run side by side
-    const runLatest = yield* FiberMap.makeRuntime<never, string>()
-    const runAll = yield* FiberSet.makeRuntime<never>()
+    const runner = runnerIn(scope)
 
     // The page already shows the initial state; after that, render at most once a frame, from the latest state
     let shown = initial
@@ -122,12 +212,15 @@ const mount = (element: HTMLElement, shared: Shared): void => {
       if (action === undefined || handler === undefined) return report(tag, `has no action named ${name}`)
       const payload = Schema.decodeUnknownExit(jsonCodec(action.payload))(values)
       if (Exit.isFailure(payload)) return ignored(tag, name, payload.cause)
-      const run = handler(state, payload.value).pipe(
+      const run = Effect.gen(function* () {
+        if (action.debounce !== undefined) yield* Effect.sleep(action.debounce)
+        yield* handler(state, payload.value)
+      }).pipe(
         Effect.provideContext(context),
         Effect.catchCause((cause) => Effect.sync(() => report(tag, `${name} failed`, cause)))
       )
-      if (action.concurrency === "switch") runLatest(name, run)
-      else runAll(run)
+      if (action.concurrency === "switch") runner.latest(name, run)
+      else runner.all(run)
     }
     for (const [name, values] of waiting.splice(0)) dispatch(name, values)
   })
@@ -138,19 +231,7 @@ const mount = (element: HTMLElement, shared: Shared): void => {
   ))
 }
 
-/** A binding's value when the event happens: what was typed, or whether a box is checked. */
-const read = (element: Element, kind: "value" | "checked"): unknown => {
-  const field = element as Partial<HTMLInputElement>
-  return kind === "checked" ? field.checked === true : String(field.value ?? "")
-}
-
-const resolve = (payload: Readonly<Record<string, unknown>>, element: Element): Record<string, unknown> => {
-  const values: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(payload)) {
-    values[key] = On.isPlaceholder(value) ? read(element, On.placeholderKind(value)) : value
-  }
-  return values
-}
+// Events -------------------------------------------------------------------------
 
 const commandsFor = (event: Event, binding: unknown): ReadonlyArray<On.Command> => {
   if (Array.isArray(binding)) return binding as ReadonlyArray<On.Command>
@@ -179,9 +260,7 @@ const listener = (event: Event): void => {
       const commands = commandsFor(event, binding)
       if (commands.length === 0) return
       if (event.type === "submit" || event instanceof KeyboardEvent) event.preventDefault()
-      for (const command of commands) {
-        if (command._tag === "Action") instance.run(command.action, resolve(command.payload, node))
-      }
+      for (const command of commands) instance.run(command, node)
       return
     }
     if (node.matches(selector)) return
@@ -194,11 +273,14 @@ export const start = (): void => {
     memoMap: Effect.runSync(Layer.makeMemoMap),
     scope: Effect.runSync(Scope.make())
   }
+  const mount = (element: HTMLElement): void => {
+    if (instances.has(element)) return
+    if (element.getAttribute("data-live") === "browser") mountBrowser(element, shared)
+    else mountServer(element)
+  }
   const mountWithin = (root: ParentNode): void => {
-    if (root instanceof HTMLElement && root.matches(selector) && !instances.has(root)) mount(root, shared)
-    for (const element of Array.from(root.querySelectorAll<HTMLElement>(selector))) {
-      if (!instances.has(element)) mount(element, shared)
-    }
+    if (root instanceof HTMLElement && root.matches(selector)) mount(root)
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>(selector))) mount(element)
   }
   const unmountDetached = (root: Element): void => {
     const hosts = [...(root.matches(selector) ? [root] : []), ...Array.from(root.querySelectorAll(selector))]
