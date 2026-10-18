@@ -19,6 +19,7 @@ import * as Path from "node:path"
 
 import * as Jsx from "./Jsx.js"
 import * as Resolve from "./Resolve.js"
+import * as Minify from "./Minify.js"
 import * as Shake from "./Shake.js"
 import * as Tokenizer from "./Tokenizer.js"
 
@@ -35,6 +36,8 @@ export interface Options {
   readonly root?: string
   /** Whether to drop what the entries don't use. Defaults to true; false serves every module whole, for debugging. */
   readonly shake?: boolean
+  /** Whether to remove the whitespace modules don't need. Defaults to true; false keeps their lines, for debugging. */
+  readonly minify?: boolean
 }
 
 export interface File {
@@ -200,6 +203,9 @@ const byName = <A extends { readonly name: string }>(a: A, b: A): number => a.na
 export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
   Effect.gen(function* () {
     const shake = options.shake ?? true
+    const minify = options.minify ?? true
+    // Hashed into every name, so a change to how files are written gives them new names, and caches let go of them
+    const format = minify ? `minify-${Minify.version}` : "plain"
     const prefix = options.prefix.replace(/\/+$/, "")
     const directory = options.root ?? process.cwd()
     const root = yield* realOf(directory, `Can't find the root directory ${directory}`)
@@ -396,7 +402,7 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
           }
         }
       }
-      const hash = createHash("sha256").update(module.name)
+      const hash = createHash("sha256").update(format).update(`\0${module.name}`)
       for (let other = 0; other < ordered.length; other++) {
         if (reached[other] === index) hash.update(`\0${contributions[other]}`)
       }
@@ -409,7 +415,7 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
     ordered.forEach((module, index) => {
       if (included[index] !== 1) return
       const text = textOf(index, (at) => literal(urls[targetsOf[index]![at]!]!, module.scan.imports[at]!.quote))
-      files.push({ path: urls[index]!, contentType, body: encoder.encode(text) })
+      files.push({ path: urls[index]!, contentType, body: encoder.encode(minify ? Minify.whitespace(text) : text) })
     })
     files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
 

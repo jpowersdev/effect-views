@@ -38,8 +38,11 @@ const write = async (root: string, files: Readonly<Record<string, string>>): Pro
 
 const json = (value: unknown): string => JSON.stringify(value, null, 2)
 
+/** Bundles without minifying, so tests can read the files as the bundler rewrote and shook them. */
 const bundle = (root: string, entries: ReadonlyArray<string>, prefix: `/${string}` = "/assets") =>
-  Effect.runPromise(Bundler.bundle({ root, prefix, entries: entries.map((entry) => Path.join(root, entry)) }))
+  Effect.runPromise(
+    Bundler.bundle({ root, prefix, minify: false, entries: entries.map((entry) => Path.join(root, entry)) })
+  )
 
 const failure = (root: string, entries: ReadonlyArray<string>) =>
   Effect.runPromise(
@@ -676,7 +679,7 @@ Vitest.describe("Bundler", () => {
         "lib.js": `export const a = 1\nexport const b = 2`
       })
       const result = await Effect.runPromise(
-        Bundler.bundle({ root, prefix: "/assets", entries: [Path.join(root, "main.js")], shake: false })
+        Bundler.bundle({ root, prefix: "/assets", entries: [Path.join(root, "main.js")], shake: false, minify: false })
       )
       Vitest.expect(textOf(result, "lib")).toBe(`export const a = 1\nexport const b = 2`)
     })
