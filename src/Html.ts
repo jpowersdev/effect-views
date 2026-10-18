@@ -19,7 +19,7 @@ export interface Attributes {
   readonly [name: string]: unknown
 }
 
-const voidElements = new Set([
+const voidElements = /*#__PURE__*/ new Set([
   "area",
   "base",
   "br",
@@ -36,7 +36,7 @@ const voidElements = new Set([
   "wbr"
 ])
 
-const urlAttributes = new Set([
+const urlAttributes = /*#__PURE__*/ new Set([
   "action",
   "background",
   "data",
@@ -126,9 +126,11 @@ const renderStyle = (value: unknown): string => {
 }
 
 const renderAttribute = (inputName: string, inputValue: unknown): string => {
-  if (inputName === "children" || inputName === "key" || inputValue === null || inputValue === undefined || inputValue === false) {
+  if (inputName === "children" || inputValue === null || inputValue === undefined || inputValue === false) {
     return ""
   }
+  // Keys identify items across renders: the browser runtime matches elements by data-key when it updates the page
+  if (inputName === "key") return renderAttribute("data-key", String(inputValue))
   if (inputName === "dangerouslySetInnerHTML" || inputName.toLowerCase() === "srcdoc" || /^on/i.test(inputName)) {
     throw new TypeError(`Unsafe HTML attribute: ${inputName}`)
   }
@@ -162,7 +164,7 @@ export const element = (name: string, attributes: Attributes | null = null): Htm
 
 export const document = (content: Html): Html => make(`<!doctype html>${content.value}`)
 
-const HtmlDeclaration = Schema.declare<Html>(isHtml, {
+const HtmlDeclaration = /*#__PURE__*/ Schema.declare<Html>(isHtml, {
   identifier: "Html",
   description: "A branded HTML representation"
 })
@@ -171,7 +173,7 @@ const HtmlDeclaration = Schema.declare<Html>(isHtml, {
  * Encodes Html as its markup. Decoding trusts the input string as raw markup,
  * just like unsafe; it does not escape or sanitize it.
  */
-export const FromString = Schema.String.annotate({
+export const FromString = /*#__PURE__*/ Schema.String.annotate({
   identifier: "Html",
   description: "HTML markup"
 }).pipe(
@@ -185,7 +187,7 @@ export const FromString = Schema.String.annotate({
 )
 
 /** Encodes Html as a text/html response; see FromString. */
-export const schema = FromString.pipe(
+export const schema = /*#__PURE__*/ FromString.pipe(
   HttpApiSchema.asText({ contentType: "text/html; charset=utf-8" })
 )
 

@@ -3,6 +3,7 @@
 import { css } from "effect-views/Component"
 import type * as Html from "effect-views/Html"
 import * as LiveComponent from "effect-views/LiveComponent"
+import * as On from "effect-views/On"
 
 import * as Views from "./Views.js"
 
@@ -24,15 +25,13 @@ export const View = LiveComponent.view(Views.Search, {
   render: (state, actions) => (
     <>
       <label for="todo-search-query">Find a todo</label>{" "}
-      {/* htmx keeps focus in an element with the same id after the swap */}
       <input
         id="todo-search-query"
         type="search"
         name="query"
         value={state.query}
         autocomplete="off"
-        {...actions.search()}
-        hx-trigger="input changed delay:200ms, search"
+        {...On.input(actions.search())}
       />
       <Results state={state} />
     </>

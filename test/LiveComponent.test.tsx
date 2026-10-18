@@ -17,10 +17,12 @@ import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware"
 import * as OpenApi from "effect/http-api/OpenApi"
 import * as Vitest from "vitest"
 
+import * as Assets from "../src/Assets.js"
 import * as Html from "../src/Html.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 import * as LiveAction from "../src/LiveAction.js"
 import * as LiveComponent from "../src/LiveComponent.js"
+import * as On from "../src/On.js"
 
 // The contract ------------------------------------------------------------------
 
@@ -40,9 +42,9 @@ const CounterView = LiveComponent.view(Counter, {
   render: (state, actions) => (
     <>
       <output>{state.label}: {state.count}</output>
-      <button type="button" {...actions.increment()}>+</button>
-      <button type="button" {...actions.add({ by: 5 })}>+5</button>
-      <input name="label" value={state.label} {...actions.rename()} />
+      <button type="button" {...On.click(actions.increment())}>+</button>
+      <button type="button" {...On.click(actions.add({ by: 5 }))}>+5</button>
+      <input name="label" value={state.label} {...On.change(actions.rename())} />
     </>
   )
 })
@@ -52,7 +54,7 @@ const CounterView = LiveComponent.view(Counter, {
 /** A service the handlers use, to show that they can depend on the application. */
 class Step extends Context.Service<Step, { readonly size: number }>()("test/Step") {}
 
-const CounterHandlers = LiveComponent.handlers(CounterView, {
+const CounterHandlers = LiveComponent.server(CounterView, {
   increment: (state) =>
     Effect.gen(function* () {
       const { size } = yield* Step
@@ -102,7 +104,9 @@ const makeApp = () => HttpRouter.toWebHandler(
     )
   ).pipe(
     // Pages and actions sign with the same key, as when it is provided to HttpRouter.serve
-    Layer.provideMerge(LiveComponent.secret(Redacted.make("test secret")))
+    Layer.provideMerge(LiveComponent.secret(Redacted.make("test secret"))),
+    // The runtime, which pages with live components need
+    Layer.provideMerge(Assets.layer({ htmx: false, api: Api }))
   ),
   { disableLogger: true }
 )
@@ -116,18 +120,18 @@ export const typeChecks = () => [
     render: (_state, actions) => (
       <>
         {/* @ts-expect-error by is a number */}
-        <button {...actions.add({ by: "5" })} />
+        <button {...On.click(actions.add({ by: "5" }))} />
         {/* @ts-expect-error there is no such action */}
-        <button {...actions.remove()} />
+        <button {...On.click(actions.remove())} />
       </>
     )
   }),
   // @ts-expect-error every action needs a handler
-  LiveComponent.handlers(CounterView, {
+  LiveComponent.server(CounterView, {
     increment: (state) => Effect.succeed(state),
     add: (state) => Effect.succeed(state)
   }),
-  LiveComponent.handlers(CounterView, {
+  LiveComponent.server(CounterView, {
     increment: (state) => Effect.succeed(state),
     add: (state) => Effect.succeed(state),
     // @ts-expect-error a handler returns the next state
@@ -165,16 +169,23 @@ const post = async (
 }
 
 Vitest.describe("LiveComponent", () => {
-  Vitest.it("renders its state, signed, and actions as htmx attributes", async () => {
+  Vitest.it("renders its state, signed, and actions as event bindings that post to their endpoints", async () => {
     const { dispose, handler } = makeApp()
     try {
       const body = await (await handler(new Request("http://localhost/"))).text()
-      Vitest.expect(body).toMatch(/^<test-counter data-component><input type="hidden" name="effect-views-state" value="[\w-]+\.[\w-]+">/)
-      Vitest.expect(body).toContain("<output>Clicks: 1</output>")
-      Vitest.expect(body).toContain(
-        `<button type="button" hx-post="/live/test-counter/increment" hx-include="closest test-counter" hx-target="closest test-counter" hx-swap="outerHTML">+</button>`
+      Vitest.expect(body).toMatch(
+        /^<test-counter data-live="server" data-component><input type="hidden" name="effect-views-state" value="[\w-]+\.[\w-]+">/
       )
-      Vitest.expect(body).toContain(`hx-vals="{&quot;by&quot;:&quot;5&quot;}"`)
+      Vitest.expect(body).toContain("<output>Clicks: 1</output>")
+      const bindings = [...body.matchAll(/data-on-(click|change)="([^"]+)"/g)].map((match) =>
+        JSON.parse(match[2]!.replaceAll("&quot;", "\""))
+      )
+      Vitest.expect(bindings).toEqual([
+        [{ _tag: "Server", action: "increment", url: "/live/test-counter/increment", payload: {}, concurrency: "parallel" }],
+        // Values given where the action is used are encoded like a form's
+        [{ _tag: "Server", action: "add", url: "/live/test-counter/add", payload: { by: "5" }, concurrency: "parallel" }],
+        [{ _tag: "Server", action: "rename", url: "/live/test-counter/rename", payload: {}, concurrency: "parallel" }]
+      ])
     } finally {
       await dispose()
     }

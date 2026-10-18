@@ -11,6 +11,8 @@ import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
 import * as Html from "./Html.js"
 import * as Search from "./Search.js"
+import { TitleField } from "./TitleField.js"
+import { TitleFieldHandlers } from "./TitleField.browser.js"
 import * as Views from "./Views.js"
 
 /** The JSON API for todos. */
@@ -27,7 +29,7 @@ export const TodosApiLayer = HttpApiBuilder.group(
 ).pipe(Layer.provide(Todos.layer))
 
 /** The search action: the todos that match what was typed. */
-export const SearchHandlers = LiveComponent.handlers(Search.View, {
+export const SearchHandlers = LiveComponent.server(Search.View, {
   search: (_state, { query = "" }) =>
     Effect.gen(function* () {
       const todos = yield* Todos.Todos
@@ -71,6 +73,6 @@ export const TodosViewsLayer = HttpApiBuilder.group(
             Effect.map(todos.list, (items) =>
               Html.page(request, Html.app(items, invalid), { status: 422 })))
         ))
-      .pipe(LiveComponent.handle(Views.Search))
+      .pipe(LiveComponent.handle(Views.Search, TitleField))
   })
-).pipe(Layer.provide([Todos.layer, SearchHandlers]))
+).pipe(Layer.provide([Todos.layer, SearchHandlers, TitleFieldHandlers]))

@@ -1,5 +1,5 @@
-import * as Assets from "./Assets.js"
 import * as Html from "./Html.js"
+import * as Manifest from "./internal/Manifest.js"
 
 const CssTypeId: unique symbol = Symbol.for("effect-views/Component/Css") as any
 
@@ -23,10 +23,13 @@ export interface Config<Props> {
   readonly style?: Css
   /** The element's contents. */
   readonly render: (props: Props) => Html.Html
+  /** Attributes for the component's own element, beside `data-component`. */
+  readonly attributes?: (props: Props) => Omit<Html.Attributes, "children">
 }
 
 export interface Component<Props> {
-  (props: Props): Html.Html
+  /** Renders the component; a JSX `key` becomes `data-key` on its element. */
+  (props: Props, key?: string | number): Html.Html
   readonly tag: string
 }
 
@@ -59,18 +62,23 @@ export const make = <Props = {}>(tag: string, config: Config<Props>): Component<
     throw new TypeError(`A component's tag must be a custom element name, such as "app-menu": ${tag}`)
   }
 
-  Assets.register({
+  Manifest.register({
     tag,
     // Stop at other components, whose styles are their own
     style: config.style === undefined ? undefined : `@scope (${tag}) to (:scope [data-component]) {\n${config.style.value}\n}`
   })
 
-  const component = (props: Props): Html.Html => {
-    const manifest = Assets.current()
+  const component = (props: Props, key?: string | number): Html.Html => {
+    const manifest = Manifest.current()
     if (manifest !== undefined && !manifest.components.has(tag)) {
       throw new Error(`<${tag}> was defined after Assets.layer was built; import its module before building the layer`)
     }
-    return Html.element(tag, { "data-component": true, children: config.render(props) })
+    return Html.element(tag, {
+      ...config.attributes?.(props),
+      ...(key === undefined ? {} : { key }),
+      "data-component": true,
+      children: config.render(props)
+    })
   }
 
   return Object.assign(component, { tag })

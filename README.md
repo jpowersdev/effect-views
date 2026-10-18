@@ -520,11 +520,13 @@ templates tagged `css`.
 
 ## Live components
 
-A live component is rendered on the server, and its actions run on the server:
-htmx posts the component's state to an action, and swaps in the component
-rendered with the state the action returns. No JavaScript of your own runs in
-the browser, so handlers can use services, the database, and anything else on
-the server.
+A live component has state, a view of it, and actions that change it. By
+default it runs on the server: the effect-views runtime posts the component's
+state to an action, and updates the component in place with the HTML of the
+state the action returns. No JavaScript of your own runs in the browser, so
+handlers can use services, the database, and anything else on the server. A
+component can run in the browser instead, with the same contract and view;
+see [In the browser](#in-the-browser).
 
 Like an HttpApi endpoint, a live component is declared in one place and
 implemented in another. The contract holds the state and the actions:
@@ -539,24 +541,24 @@ export class SearchState extends Schema.Class<SearchState>("SearchState")({
 }) {}
 
 export const search = LiveAction.make("search", {
-  payload: { query: Schema.optionalKey(Schema.String) }
+  payload: { query: Schema.optionalKey(Schema.String) },
+  // Runs once typing pauses, and a newer search replaces one in flight
+  debounce: "200 millis"
 })
 
 export const Search = LiveComponent.make("todo-search", { state: SearchState }).add(search)
 ```
 
 The view needs only the contract, so it renders without the handlers or their
-services. Each action becomes ordinary htmx attributes: `hx-post`,
-`hx-include`, `hx-target`, and `hx-swap`. Add others, such as `hx-trigger`,
-beside them:
+services. Each action is a command, bound to an event with `On`, as data in an
+attribute:
 
 ```tsx
 export const SearchView = LiveComponent.view(Search, {
   style: css`:scope { display: block; }`,
   render: (state, actions) => (
     <>
-      <input id="search" type="search" name="query" value={state.query}
-        {...actions.search()} hx-trigger="input changed delay:200ms" />
+      <input type="search" name="query" value={state.query} {...On.input(actions.search())} />
       <ul>{state.matches.map((todo) => <li>{todo.title}</li>)}</ul>
     </>
   )
@@ -569,7 +571,7 @@ The handlers are a layer, with the services they use provided to it. They
 return the next state, and TypeScript requires one for every action:
 
 ```ts
-export const SearchHandlers = LiveComponent.handlers(SearchView, {
+export const SearchHandlers = LiveComponent.server(SearchView, {
   search: (_state, { query = "" }) =>
     Effect.gen(function* () {
       const todos = yield* Todos
@@ -603,15 +605,126 @@ Give an action a `description` to summarize it in the OpenAPI document.
   server keeps nothing between requests and the browser cannot change it. A
   problem to show the user, such as a failed search, belongs in the state.
 - **Payloads** are decoded like forms, from the inputs in the component and
-  any values given where the action is used, such as `actions.add({ by: 5 })`.
-- htmx keeps focus in an input with the same `id` after the swap, so give
-  inputs that trigger actions an `id`.
+  any values given where the action is used, such as
+  `On.click(actions.add({ by: 5 }))`.
+- The component is updated in place, element by element, so focus and the
+  caret survive the update. Fields show what the response renders, except
+  those typed in while the request was in flight.
+- A component's actions run one at a time, in order, since each sends the
+  state the last one returned, so quick clicks all count.
 - Actions are served at `/live/<tag>/<action>`; do not prefix their group or
   its API. An action answers 400 when its state or payload cannot be decoded.
+- Live components need the effect-views runtime: give `Assets.layer` the API,
+  `Assets.layer({ api })`, and it bundles the runtime when the API has live
+  components. Rendering one without it is an error.
 - State is signed with a key chosen at startup, so nothing needs to be
   provided. Pages rendered before a restart, or by another server, stop
   accepting actions; to share a key, provide
   `LiveComponent.secret(Redacted.make(...))` to `HttpRouter.serve`.
+- An action with `concurrency: "switch"` replaces a request in flight with a
+  newer one, aborting it; `debounce` waits for events to stop first.
+- A link or submit button bound with `On.click` runs the action instead of
+  navigating or submitting.
+
+### In the browser
+
+Some components respond to every key press or drag, or keep state that never
+needs the server: a field that checks itself as you type, a list of items
+being edited. Declare them with `runs: "browser"`. The contract and the view
+are the same; the view renders on the server first, and then in the browser
+after each change, updating the page in place so focus and the caret stay
+where they are.
+
+```ts
+export const edit = LiveAction.make("edit", {
+  payload: { title: Schema.String },
+  // A newer keystroke interrupts the run before it, and the request it made
+  concurrency: "switch"
+})
+
+export const TitleField = LiveComponent.make("todo-title", { state: TitleState, runs: "browser" })
+  .add(edit)
+```
+
+In the view, each action is a command, bound to an event with `On`. A value
+can be read from the element when the event happens, with `On.value` or
+`On.checked`. Bindings are data in attributes, so nothing in the markup is
+code, and a strict content security policy still applies:
+
+```tsx
+export const TitleFieldView = LiveComponent.view(TitleField, {
+  render: (state, actions) => (
+    <>
+      <input name="title" value={state.title} {...On.input(actions.edit({ title: On.value }))} />
+      <p aria-live="polite">{state.problem}</p>
+    </>
+  )
+})
+```
+
+`On.click`, `On.input`, `On.change`, `On.submit`, `On.focusin` and `On.focusout`
+take commands, and `On.event` binds the others the runtime handles, listed in
+`On.events`; they bubble, so one listener on the document serves the page.
+`On.keydown` and `On.keyup` take a map of keys, and the keys in it no longer
+do what they usually do, so Enter can choose an option rather than submit the
+form; keys left out go to bindings further out. Give items in lists a `key`,
+rendered as `data-key`, so they keep their elements as items are added and
+removed; on a component, such as a live component in a list, it goes on the
+component's element, so each keeps its own state.
+
+The handlers run in the browser. They change the state rather than return
+it, because actions overlap there, such as a key press while a check waits
+for the server. Services come from a layer, built once per page and shared by
+the components that provide it. A handler can call the application's own API
+with `HttpApiClient`, typed by the same HttpApi the server implements:
+
+```ts
+// TitleField.browser.ts
+const client = HttpApiClient.make(DataApi.Api)
+
+export const TitleFieldHandlers = LiveComponent.browser(TitleFieldView, {
+  edit: (state, { title }) =>
+    Effect.gen(function* () {
+      yield* state.update((s) => new TitleState({ ...s, title, checking: true }))
+      yield* Effect.sleep("300 millis")
+      const { todosApi } = yield* client
+      const taken = (yield* todosApi.list()).some((todo) => todo.title === title.trim())
+      yield* state.update((s) => new TitleState({ ...s, checking: false, problem: taken ? "Already on the list" : "" }))
+    }).pipe(Effect.catch(() => state.update((s) => new TitleState({ ...s, checking: false }))))
+}, { layer: FetchHttpClient.layer })
+```
+
+Call `LiveComponent.browser` at the top of a module of its own: effect-views
+bundles that module, and everything it imports, for the browser when
+`Assets.layer` is built, so it must not import anything that only runs on the
+server. There is no build step and nothing to configure; give `Assets.layer`
+the API, and add and handle the component like one that runs on the server:
+
+```ts
+export const group = HttpApiGroup.make("todosViews")
+  .add(...LiveComponent.endpoints(TitleField))
+
+… .pipe(LiveComponent.handle(Search, TitleField))
+).pipe(Layer.provide([SearchHandlers, TitleFieldHandlers]))
+
+Assets.layer({ api: Api })
+```
+
+- **State** is encoded as JSON in an attribute of the component's element,
+  and never sent back: the server does not trust it, so check anything the
+  component submits, such as the fields of the form around it.
+- **Code** is bundled when the server starts, from JavaScript, TypeScript or
+  JSX, compiled or not: one file per module, with only the code the components
+  use, and imports pointing at each other's addresses, which change with their
+  contents. `<Assets.Head />` loads the runtime, and each component's view
+  preloads its own modules.
+- Keep a browser component's contract and view in modules of their own, apart
+  from modules that declare the server's endpoints: everything they import is
+  bundled, and calls at the top of a module, such as building an HttpApi
+  group, are kept.
+- The component's endpoint, `/live/<tag>/module.js`, serves its code from an
+  address that does not change; it is also how `Assets.layer` finds the
+  component in the API.
 
 ### Assets
 
@@ -641,6 +754,8 @@ refer to the application's files with `Assets.url`:
 that error pages rendered by middleware can render the head too; with
 `HttpRouter.toWebHandler`, use `Layer.provideMerge`.
 
+Pass `api` to bundle the live components in the API that run in the
+browser, with the effect-views runtime; see [In the browser](#in-the-browser).
 Pass `htmx: { url }` to load htmx from elsewhere, `htmx: false` to leave it
 out, `extensions: ["sse"]` to serve htmx extensions from their `htmx-ext-<name>`
 packages, or `prefix` to serve the files from somewhere other than `/assets`,
@@ -697,5 +812,10 @@ keeps pages in step when the browser reconnects after losing the connection.
 
 ```sh
 pnpm check  # Type-check source, examples, and compile-time test assertions
-pnpm test   # Run renderer, form, and HTTP tests
+pnpm test   # Run renderer, form, HTTP, and browser tests
 ```
+
+The tests in `test/browser` run the runtime and the morph in headless
+Chromium, driven through the Chrome DevTools Protocol with nothing to install
+beyond the browser. They look for `chromium` or `google-chrome` on the `PATH`;
+set `CHROMIUM` to its path otherwise. Without a browser they are skipped.

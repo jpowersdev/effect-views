@@ -32,9 +32,10 @@ over.
 `Form.derive` uses the endpoint's path as the form action and its payload schema
 to constrain control names. Labels and layout are written by hand.
 
-Type in "Find a todo" to search the list. It is a live component: each search
-runs on the server, with the same Todos service as the handlers, and htmx swaps
-in the results. Its contract is in [`Todos/Views.ts`](todo-list/Todos/Views.ts),
+Type in "Find a todo" to search the list. It is a live component that runs on
+the server: once typing pauses, the effect-views runtime posts the search, which
+runs with the same Todos service as the handlers, and updates the component in
+place with the results, keeping the caret where it is. Its contract is in [`Todos/Views.ts`](todo-list/Todos/Views.ts),
 its markup in [`Todos/Search.tsx`](todo-list/Todos/Search.tsx), and its handler
 in [`Todos/Http.ts`](todo-list/Todos/Http.ts); its action is an endpoint
 in the same group as the todo pages.
@@ -56,6 +57,18 @@ events](todo-list/Todos/Views.ts): the server sends the list when the page
 connects, and again each time any client adds a todo, and htmx swaps it in.
 Open the page in two windows and add a todo in one to see it arrive in the
 other.
+
+The title field runs in the browser. As you type, it checks the title with
+the same schema, and the same messages, as the form's handler, and shows how
+many characters are left. When you pause, it asks the JSON API whether the
+title is already on the list, with a client `HttpApiClient` derives from the
+API; each keystroke interrupts the check before it. Its contract and markup
+are in [`Todos/TitleField.tsx`](todo-list/Todos/TitleField.tsx), apart from the
+server's endpoints, since what it imports is bundled for the browser, and its
+handler is in
+[`Todos/TitleField.browser.ts`](todo-list/Todos/TitleField.browser.ts), which
+`Assets.layer` bundles when the server starts. The form still submits the
+title, and the server still checks it.
 
 The [CLI](todo-list/cli.ts) uses a client that `HttpApiClient` derives from the
 API's contract, so its requests and responses are typed with the schemas the
@@ -146,9 +159,19 @@ Order #7 does not exist: its handler answers with a 404 page. Unknown paths,
 such as <http://127.0.0.1:3000/nope>, and invalid ones, such as
 <http://127.0.0.1:3000/orders/abc>, get error pages from `ErrorPage.layer`.
 
+Choose **Place a new order**. The items are a live component that runs in
+the browser: add, remove, and change items, and the prices and total change as
+you edit them, without a request. The form submits the items when you place
+the order, and the server decodes them with the same schema. The items, their
+schema, and the view are in [`orders/Lines.tsx`](orders/Lines.tsx), which the
+server and the browser both import; the handlers are in
+[`orders/Lines.browser.ts`](orders/Lines.browser.ts).
+
 Read [`orders/App.tsx`](orders/App.tsx) for the contract, in-memory service,
 views, and handlers. [`orders/main.tsx`](orders/main.tsx) starts the server.
 
-`pnpm example` also starts the orders demo. `pnpm dev` watches its example
-files. After editing `src/`, restart the command to rebuild the library. See the
+`pnpm example` also starts the orders demo. `pnpm dev` runs it from source and
+restarts it when its files change, which bundles the components that run in
+the browser again; reload the page to see the changes. After editing `src/`,
+restart the command to rebuild the library. See the
 [root check commands](../README.md#checks) for type checking and tests.

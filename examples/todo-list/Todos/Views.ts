@@ -8,6 +8,7 @@ import * as LiveAction from "effect-views/LiveAction"
 import * as LiveComponent from "effect-views/LiveComponent"
 
 import * as Todo from "../Domain/Todo.js"
+import { TitleField } from "./TitleField.js"
 
 export const list = HttpViewEndpoint.get("list", "/")
   .annotate(OpenApi.Summary, "The todo list")
@@ -29,10 +30,11 @@ export class SearchState extends Schema.Class<SearchState>("SearchState")({
   static readonly empty = new SearchState({ query: "", matches: [] })
 }
 
-/** Runs as you type. An empty search input is not submitted at all. */
+/** Runs once typing pauses; a newer search replaces one in flight. An empty search input is not submitted at all. */
 export const search = LiveAction.make("search", {
   payload: { query: Schema.optionalKey(Schema.String) },
-  description: "Search todos"
+  description: "Search todos",
+  debounce: "200 millis"
 })
 
 /** Searches the list as you type; see Search.tsx and Http.ts. */
@@ -43,5 +45,6 @@ export const Search = LiveComponent.make("todo-search", { state: SearchState })
 export const group = HttpApiGroup.make("todosViews")
   .add(list, changes, create)
   .add(...LiveComponent.endpoints(Search))
+  .add(...LiveComponent.endpoints(TitleField))
   .annotate(OpenApi.Override, { "x-displayName": "Todos" })
   .annotate(OpenApi.Description, "The todo list's pages, the fragments htmx swaps in, and its live components.")

@@ -19,7 +19,7 @@ export type Errors = Readonly<Record<string, ReadonlyArray<string>>>
  * be rendered again as the user left it, with messages for each field and for
  * the form as a whole.
  */
-export class Invalid extends Data.TaggedError("FormInvalid")<{
+export class Invalid extends /*#__PURE__*/ Data.TaggedError("FormInvalid")<{
   readonly values: Values
   readonly errors: Errors
   readonly formErrors: ReadonlyArray<string>
@@ -44,9 +44,9 @@ const leafHook: SchemaIssue.LeafHook = (issue) =>
     ? issue.annotations?.messageMissingKey ?? "Required"
     : SchemaIssue.defaultLeafHook(issue)
 
-const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1({ leafHook })
+const formatIssue = /*#__PURE__*/ SchemaIssue.makeFormatterStandardSchemaV1({ leafHook })
 
-const resolveMessage = SchemaAST.resolveAt<string>("message")
+const resolveMessage = /*#__PURE__*/ SchemaAST.resolveAt<string>("message")
 
 const messagesOf = (issue: SchemaIssue.Issue): Array<string> =>
   formatIssue(issue).issues.map(({ message }) => message)
@@ -252,7 +252,7 @@ export const reject = <Fields extends Schema.Struct.Fields>(
 ): Invalid =>
   new Invalid({ values: Schema.encodeSync(stringTreeCodec(schema))(value) as Values, ...messages })
 
-const RawValues = Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])).annotate({
+const RawValues = /*#__PURE__*/ Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])).annotate({
   description: "The values of a submitted form, by field name"
 })
 

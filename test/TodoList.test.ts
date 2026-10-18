@@ -43,7 +43,7 @@ Vitest.describe("todo list example", () => {
       const nextEvent = async () => new TextDecoder().decode((await reader.read()).value)
 
       // The current list, when the page connects
-      Vitest.expect(await nextEvent()).toMatch(/^event: todos\ndata: <ul><li>Try Effect views<\/li>/)
+      Vitest.expect(await nextEvent()).toMatch(/^event: todos\ndata: <ul><li data-key="1">Try Effect views<\/li>/)
 
       // The CLI's typed client, sending its requests to the app in this process
       const outcome = await Effect.runPromise(Effect.gen(function* () {
@@ -60,7 +60,7 @@ Vitest.describe("todo list example", () => {
       Vitest.expect(outcome.duplicate).toBe("DuplicateTodo")
 
       // And the list again, with the new todo
-      Vitest.expect(await nextEvent()).toContain("<li>Added from the terminal</li></ul>")
+      Vitest.expect(await nextEvent()).toContain(">Added from the terminal</li></ul>")
       await reader.cancel()
     } finally {
       await dispose()
@@ -144,8 +144,10 @@ Vitest.describe("todo list example", () => {
       Vitest.expect(invalid.headers.get("content-type")).toBe("text/html; charset=utf-8")
       const invalidBody = await invalid.text()
       Vitest.expect(invalidBody).toMatch(/^<!doctype html>/)
-      Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="new-todo-title-error" autofocus')
-      Vitest.expect(invalidBody).toContain('<p class="error" id="new-todo-title-error">Write what needs doing</p>')
+      Vitest.expect(invalidBody).toContain('aria-invalid="true" aria-describedby="todo-title-status" autofocus')
+      Vitest.expect(invalidBody).toContain(
+        '<p id="todo-title-status" class="status status--problem" aria-live="polite">Write what needs doing</p>'
+      )
 
       const blank = await handler(new Request("http://localhost/todos", {
         method: "POST",

@@ -26,8 +26,12 @@ export const Routes = Layer.mergeAll(
   Csrf.layer()
 )
 
-/** htmx, its sse extension, and the styles of every component defined by the modules above. */
-export const AssetsLayer = Assets.layer({ extensions: ["sse"] })
+/**
+ * htmx, its sse extension, the styles of every component defined by the
+ * modules above, and the live components in the API that run in the browser,
+ * bundled with the effect-views runtime.
+ */
+export const AssetsLayer = Assets.layer({ extensions: ["sse"], api: RootApi.Api })
 
 const host = process.env["HOST"] ?? "127.0.0.1"
 const port = Number(process.env["PORT"] ?? 3000)

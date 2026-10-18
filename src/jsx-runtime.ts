@@ -1,6 +1,6 @@
 import * as Html from "./Html.js"
 
-export type Component<Props = Record<string, unknown>> = (props: Props) => Html.Html
+export type Component<Props = Record<string, unknown>> = (props: Props, key?: string | number) => Html.Html
 export type ElementType = string | Component<any>
 
 export const Fragment = (props: { readonly children?: Html.Child }): Html.Html =>
@@ -9,10 +9,11 @@ export const Fragment = (props: { readonly children?: Html.Child }): Html.Html =
 export const jsx = (
   type: ElementType,
   props: Html.Attributes | null,
-  _key?: string | number
+  key?: string | number
 ): Html.Html => {
-  if (typeof type === "function") return type(props ?? {})
-  return Html.element(type, props)
+  // Components given a key put it on their own element, such as Component.make's, for the browser runtime
+  if (typeof type === "function") return type(props ?? {}, key)
+  return Html.element(type, key === undefined ? props : { ...props, key })
 }
 
 export const jsxs = jsx

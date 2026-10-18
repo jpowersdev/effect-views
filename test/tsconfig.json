@@ -13,5 +13,5 @@
     { "path": "../src" },
     { "path": "../examples" }
   ],
-  "include": ["*.ts", "*.tsx"]
+  "include": ["*.ts", "*.tsx", "fixtures/*.ts", "support/*.ts", "browser/*.ts", "browser/*.tsx"]
 }
