@@ -248,11 +248,31 @@ after a full page load and htmx after a swap, without extra JavaScript. It
 includes the form's own messages, so use it instead of a nameless `Error`. The
 [sign-up example](examples/signup/App.tsx) puts it at the top of a long form.
 
+### Endpoints with path parameters
+
+Give `Form.derive` the endpoint's params, and its query if it has one, to fill
+in the form's action. They're checked against the endpoint's schemas and
+encoded as the server decodes them:
+
+```tsx
+const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
+  params: { id: Schema.Int },
+  payload: Schema.Struct({ title: Todo.Title })
+})
+
+const Rename = Form.derive({ id: `rename-${todo.id}`, endpoint: rename, params: { id: todo.id } })
+
+<Rename.Root hx-post={Rename.action}>…</Rename.Root>
+// <form hx-post="/todos/7/rename" id="rename-7" method="post" action="/todos/7/rename">
+```
+
+A form's `id` prefixes its controls' ids, so give each one on a page its own,
+such as one per record.
+
 ### Forms without an HttpFormEndpoint
 
 `HttpFormEndpoint.make` is a shortcut. A form built with `Form.make` has the
-same `Submission` payload schema, so any endpoint can receive it, including one
-with path parameters:
+same `Submission` payload schema, so any endpoint can receive it:
 
 ```ts
 const Rename = Form.make({
