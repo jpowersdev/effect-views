@@ -15,6 +15,13 @@ Vitest.describe("Html", () => {
     )
   })
 
+  Vitest.it("keeps carriage returns, which HTML parsing would turn into line feeds", () => {
+    const text = "\r\nfirst\r\nsecond\n"
+    Vitest.expect(Html.render(<input type="hidden" value={text} />))
+      .toBe(`<input type="hidden" value="&#13;\nfirst&#13;\nsecond\n">`)
+    Vitest.expect(Html.render(<textarea>{text}</textarea>)).toBe(`<textarea>&#13;\nfirst&#13;\nsecond\n</textarea>`)
+  })
+
   Vitest.it("composes components without re-escaping Html", () => {
     const Badge = ({ children }: { readonly children: Html.Child }) =>
       <strong className="badge">{children}</strong>

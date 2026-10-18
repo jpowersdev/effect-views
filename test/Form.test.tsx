@@ -218,6 +218,86 @@ Vitest.describe("Form", () => {
     Vitest.expect(Html.render(<TodoForm.Summary />)).toBe("")
   })
 
+  Vitest.it("renders hidden fields of any type, encoded by their schemas", () => {
+    const Comment = Form.make({
+      id: "comment",
+      action: "/comments",
+      payload: Schema.Struct({
+        anchor: Schema.fromJsonString(Schema.Struct({ start: Schema.Int, end: Schema.Int })),
+        start: Schema.Int,
+        visibility: Schema.Literals(["public", "private"]),
+        body: Schema.String
+      })
+    })
+
+    Vitest.expect(Html.render(<Comment.Hidden name="anchor" value={{ start: 1, end: 4 }} />)).toBe(
+      `<input id="comment-anchor" name="anchor" type="hidden" value="{&quot;start&quot;:1,&quot;end&quot;:4}">`
+    )
+    Vitest.expect(Html.render(<Comment.Hidden name="start" value={12} />)).toBe(
+      `<input id="comment-start" name="start" type="hidden" value="12">`
+    )
+    // Left for the page's script to fill in
+    Vitest.expect(Html.render(<Comment.Hidden name="visibility" data-default="private" />)).toBe(
+      `<input data-default="private" id="comment-visibility" name="visibility" type="hidden">`
+    )
+    // A rejected submission keeps what was sent
+    const Filled = Comment.with(new Submission.Invalid({ values: { start: "twelve" }, errors: {} }))
+    Vitest.expect(Html.render(<Filled.Hidden name="start" value={12} />)).toBe(
+      `<input id="comment-start" name="start" type="hidden" value="twelve">`
+    )
+
+    // Not called: the values are checked against the fields' types.
+    const invalid = () => [
+      // @ts-expect-error start is a number
+      <Comment.Hidden name="start" value="12" />,
+      // @ts-expect-error not one of the literals
+      <Comment.Hidden name="visibility" value="secret" />,
+      // @ts-expect-error "missing" is not part of the schema
+      <Comment.Hidden name="missing" />
+    ]
+    Vitest.expect(invalid).toBeTypeOf("function")
+  })
+
+  Vitest.it("fills in the action for an endpoint with params and a query", async () => {
+    const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
+      params: { id: Schema.Int },
+      query: { from: Schema.optionalKey(Schema.String) },
+      payload: Schema.Struct({ title: Schema.NonEmptyString })
+    })
+    const Rename = Form.derive({ id: "rename-7", endpoint: rename, params: { id: 7 }, query: { from: "list" } })
+
+    Vitest.expect(Rename.action).toBe("/todos/7/rename?from=list")
+    Vitest.expect(Html.render(<Rename.Root><Rename.Input name="title" /></Rename.Root>)).toBe(
+      `<form id="rename-7" method="post" action="/todos/7/rename?from=list">` +
+        `<input id="rename-7-title" name="title" type="text">` +
+      `</form>`
+    )
+
+    // The server decodes what the form encoded
+    const api = HttpApi.make("Todos").add(HttpApiGroup.make("todos").add(rename))
+    const handlers = HttpApiBuilder.group(api, "todos", (handlers) =>
+      handlers.handle("rename", ({ params, payload, query }) =>
+        Effect.map(payload, ({ title }) => <p>{params.id} from {query.from}: {title}</p>).pipe(
+          Effect.catchTag("FormInvalid", () => Effect.succeed(<p>Invalid</p>))
+        )))
+    const { dispose, handler } = HttpRouter.toWebHandler(
+      HttpApiBuilder.layer(api).pipe(
+        Layer.provide(handlers),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer))
+      ),
+      { disableLogger: true }
+    )
+    try {
+      const response = await handler(new Request(`http://localhost${Rename.action}`, {
+        method: "POST",
+        body: new URLSearchParams({ title: "Water the plants" })
+      }))
+      Vitest.expect(await response.text()).toBe("<p>7 from list: Water the plants</p>")
+    } finally {
+      await dispose()
+    }
+  })
+
   Vitest.it("gives hand-built endpoints the same Submission payload", async () => {
     // A form and an endpoint declared separately, sharing the form's payload schema.
     const Signup = Form.make({
@@ -322,7 +402,15 @@ Vitest.describe("Form", () => {
     const wrongType = <TodoForm.Input name="count" type="email" />
     // @ts-expect-error Root derives its method and action from the form
     const repeatedTransport = <TodoForm.Root method="post" action="/other" />
+    const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
+      params: { id: Schema.Int },
+      payload: Schema.Struct({ title: Schema.String })
+    })
+    // @ts-expect-error the endpoint's params fill in the action
+    const missingParams = () => Form.derive({ id: "rename", endpoint: rename })
+    // @ts-expect-error id is an integer
+    const wrongParams = () => Form.derive({ id: "rename", endpoint: rename, params: { id: "7" } })
 
-    Vitest.expect([missing, wrongControl, wrongType, repeatedTransport]).toHaveLength(4)
+    Vitest.expect([missing, wrongControl, wrongType, repeatedTransport, missingParams, wrongParams]).toHaveLength(6)
   })
 })

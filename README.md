@@ -248,11 +248,46 @@ after a full page load and htmx after a swap, without extra JavaScript. It
 includes the form's own messages, so use it instead of a nameless `Error`. The
 [sign-up example](examples/signup/App.tsx) puts it at the top of a long form.
 
+### Endpoints with path parameters
+
+Give `Form.derive` the endpoint's params, and its query if it has one, to fill
+in the form's action. They're checked against the endpoint's schemas and
+encoded as the server decodes them:
+
+```tsx
+const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
+  params: { id: Schema.Int },
+  payload: Schema.Struct({ title: Todo.Title })
+})
+
+const Rename = Form.derive({ id: `rename-${todo.id}`, endpoint: rename, params: { id: todo.id } })
+
+<Rename.Root hx-post={Rename.action}>…</Rename.Root>
+// <form hx-post="/todos/7/rename" id="rename-7" method="post" action="/todos/7/rename">
+```
+
+A form's `id` prefixes its controls' ids, so give each one on a page its own,
+such as one per record.
+
+### Hidden fields
+
+`Hidden` renders a hidden input for a field of any type, such as a number, a
+literal, or JSON, with its value encoded by the field's schema:
+
+```tsx
+const Comment = Form.derive({ id: "comment", endpoint: comment })
+
+<Comment.Hidden name="anchor" value={{ start: 1, end: 4 }} />
+// <input id="comment-anchor" name="anchor" type="hidden" value="{&quot;start&quot;:1,&quot;end&quot;:4}">
+```
+
+Leave `value` out for one the page's own script fills in, finding the input by
+`Comment.idFor("anchor")`.
+
 ### Forms without an HttpFormEndpoint
 
 `HttpFormEndpoint.make` is a shortcut. A form built with `Form.make` has the
-same `Submission` payload schema, so any endpoint can receive it, including one
-with path parameters:
+same `Submission` payload schema, so any endpoint can receive it:
 
 ```ts
 const Rename = Form.make({
@@ -384,6 +419,24 @@ Pass `trustedOrigins` for other sites that may submit forms to the application,
 and `reject` to customize the response. Behind a proxy that rewrites `Host`,
 browsers without Fetch Metadata need the public origin in `trustedOrigins`. Set
 session cookies with `SameSite=Lax` as well.
+
+## Content security policy
+
+`Csp.layer()` gives every response a fresh nonce and sends a content security
+policy with it. The default, `Csp.strict`, allows scripts, styles and images
+from the page's own origin, and inline scripts and styles only with the nonce.
+Pass `directives` to change it:
+
+```ts
+const app = Layer.mergeAll(routes, Csp.layer({
+  directives: (nonce) => ({ ...Csp.strict(nonce), "frame-src": ["https://www.youtube.com"] })
+}))
+```
+
+While a request is handled, `Csp.nonce()` returns its nonce, for the inline
+scripts and styles a page trusts: `<script nonce={Csp.nonce()}>`. `Htmx.Config`
+hands it to htmx for the styles and scripts htmx adds, and `Assets.Head` puts
+it on its scripts. A response that sets its own policy keeps it.
 
 ## Async views
 
@@ -598,6 +651,17 @@ const Changes = View.derive({ endpoint: changes })
   Effect.succeed(todos.changes.pipe(
     Stream.map((items) => ({ event: "todos", data: <TodoList todos={items} /> }))
   )))
+```
+
+When different parts of a page take different events, open one connection
+with `Connect`, and name each part's events in `sse-swap`:
+
+```tsx
+<Changes.Connect as="main">
+  <section sse-swap="todos"><TodoList todos={todos} /></section>
+  <p sse-swap="count">{todos.length} todos</p>
+</Changes.Connect>
+// <main hx-ext="sse" sse-connect="/todos/changes">…</main>
 ```
 
 The endpoint is an ordinary HttpApi endpoint, with the API's middleware, and

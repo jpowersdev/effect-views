@@ -3,6 +3,7 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import type * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 
+import * as Csp from "./Csp.js"
 import * as Html from "./Html.js"
 
 export const isRequest = (request: HttpServerRequest.HttpServerRequest): boolean =>
@@ -127,8 +128,13 @@ export interface ConfigProps {
   readonly config?: Readonly<Record<string, unknown>>
 }
 
-/** A meta element configuring htmx to swap 422 responses, and errors when errorTarget is set. */
+/**
+ * A meta element configuring htmx to swap 422 responses, and errors when
+ * errorTarget is set. With `Csp.layer`, htmx marks the styles and scripts it
+ * adds with the response's nonce.
+ */
 export const Config = (props: ConfigProps): Html.Html => {
+  const nonce = Csp.nonce()
   const handling = props.errorTarget === undefined
     ? responseHandling
     : responseHandling.map((entry) =>
@@ -138,6 +144,10 @@ export const Config = (props: ConfigProps): Html.Html => {
     )
   return Html.element("meta", {
     name: "htmx-config",
-    content: JSON.stringify({ responseHandling: handling, ...props.config })
+    content: JSON.stringify({
+      responseHandling: handling,
+      ...(nonce === undefined ? {} : { inlineScriptNonce: nonce, inlineStyleNonce: nonce }),
+      ...props.config
+    })
   })
 }

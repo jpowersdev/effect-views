@@ -1,4 +1,8 @@
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
+import * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApiClient from "effect/http-api/HttpApiClient"
+import type * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
 import * as Html from "./Html.js"
 import * as HttpFormEndpoint from "./HttpFormEndpoint.js"
@@ -73,6 +77,18 @@ export interface SelectOption {
   readonly disabled?: boolean
 }
 
+export type HiddenProps<
+  Fields extends Schema.Struct.Fields,
+  Name extends FieldName<Fields>
+> = NativeAttributes<"children" | "id" | "name" | "type" | "value"> & {
+  readonly name: Name
+  /**
+   * The field's value, encoded by its schema as the form submits it. Leave it
+   * out for a value the page's own script fills in.
+   */
+  readonly value?: Fields[Name]["Type"]
+}
+
 export type SelectProps<Name extends string> = NativeAttributes<"id" | "name" | "value"> & {
   readonly name: Name
   /** Rendered as option elements, so a submitted value can be selected again. */
@@ -106,10 +122,23 @@ export interface Config<Fields extends Schema.Struct.Fields, Action extends stri
   readonly rules?: Submission.Rules<NoInfer<Schema.Struct<Fields>["Type"]>> | undefined
 }
 
-export interface DeriveConfig<Endpoint extends HttpFormEndpoint.Any> {
+type RequestPart<Key extends string, Value> = [Value] extends [never] ? {} : {
+  readonly [K in Key]: Value
+}
+
+/** The params and query of a form's action, typed by its endpoint's schemas. */
+export type Request<Endpoint extends HttpFormEndpoint.Any> =
+  & RequestPart<"params", HttpApiEndpoint.Params<Endpoint>["Type"]>
+  & RequestPart<"query", HttpApiEndpoint.Query<Endpoint>["Type"]>
+
+export type DeriveConfig<Endpoint extends HttpFormEndpoint.Any> = {
   readonly id: string
   readonly endpoint: Endpoint
-}
+} & Request<Endpoint>
+
+/** The endpoint's path as a literal type, or a string once params or a query fill it in. */
+export type ActionOf<Endpoint extends HttpFormEndpoint.Any> = keyof Request<Endpoint> extends never ? Endpoint["path"]
+  : string
 
 export interface Form<Fields extends Schema.Struct.Fields, Action extends string = string> {
   readonly schema: Schema.Struct<Fields>
@@ -127,6 +156,11 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
   readonly Textarea: <Name extends TextFieldName<Fields>>(props: TextareaProps<Name>) => Html.Html
   readonly Checkbox: <Name extends CheckboxFieldName<Fields>>(props: CheckboxProps<Name>) => Html.Html
   readonly Select: <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>) => Html.Html
+  /**
+   * A hidden input for a field of any type, such as a number, a literal, or
+   * JSON, with its value encoded by the field's schema.
+   */
+  readonly Hidden: <Name extends FieldName<Fields>>(props: HiddenProps<Fields, Name>) => Html.Html
   /**
    * A field's error messages, or the form's own messages without a name, or
    * nothing when there are none. Controls and the form refer to it with
@@ -291,6 +325,24 @@ export const make = <
       })
     }
 
+    // A value as the form submits it: the field's schema, encoded as URL-encoded values are decoded
+    const encode = (name: string, value: unknown): string | undefined => {
+      const field = Schema.Struct({ [name]: schema.fields[name]! }) as Schema.Struct<Schema.Struct.Fields>
+      const codec = Schema.toCodecStringTree(field) as unknown as Schema.Codec<unknown, Submission.Values>
+      return firstValue(Schema.encodeSync(codec)({ [name]: value })[name])
+    }
+
+    const Hidden = <Name extends FieldName<Fields>>(props: HiddenProps<Fields, Name>): Html.Html => {
+      const { name, value, ...attributes } = props
+      return Html.element("input", {
+        ...attributes,
+        id: idFor(name),
+        name,
+        type: "hidden",
+        value: valueOf(name) ?? (value === undefined ? undefined : encode(name, value))
+      })
+    }
+
     const Select = <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>): Html.Html => {
       const { children, name, options, value, ...attributes } = props
       const selected = valueOf(name) ?? value
@@ -366,6 +418,7 @@ export const make = <
       Textarea,
       Checkbox,
       Select,
+      Hidden,
       Error,
       Summary,
       messages,
@@ -380,22 +433,57 @@ export const make = <
   return build(undefined)
 }
 
+// Builds URLs the way the endpoint's server decodes them, one builder per endpoint.
+const urlBuilders = new WeakMap<object, (request: unknown) => string>()
+const urlFor = (endpoint: HttpFormEndpoint.Any, request: unknown): string => {
+  let build = urlBuilders.get(endpoint)
+  if (build === undefined) {
+    const api = HttpApi.make("effect-views/Form").add(
+      HttpApiGroup.make("form", { topLevel: true }).add(endpoint as any)
+    )
+    const builder = HttpApiClient.urlBuilder(api) as unknown as Record<string, (request: unknown) => string>
+    build = builder[endpoint.identifier]!
+    urlBuilders.set(endpoint, build)
+  }
+  return build(request)
+}
+
 /**
- * Copies an HttpFormEndpoint's path and field schema into a form.
- * Requires the original endpoint metadata and a path without parameters.
+ * Copies an HttpFormEndpoint's path and field schema into a form. Give the
+ * endpoint's params and query, when it has them, to fill in the action; they
+ * are checked against the endpoint's schemas and encoded as the server decodes
+ * them.
+ *
+ * ```tsx
+ * const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
+ *   params: { id: Schema.Int },
+ *   payload: Schema.Struct({ title: Schema.NonEmptyString })
+ * })
+ *
+ * const Rename = Form.derive({ id: `rename-${todo.id}`, endpoint: rename, params: { id: todo.id } })
+ * // <Rename.Root> posts to /todos/7/rename
+ * ```
+ *
+ * Requires the original endpoint metadata.
  */
 export const derive = <const Endpoint extends HttpFormEndpoint.Any>(
   config: DeriveConfig<Endpoint>
-): DerivedForm<HttpFormEndpoint.Fields<Endpoint>, Endpoint["path"], Endpoint> => {
-  const { endpoint, id } = config
+): DerivedForm<HttpFormEndpoint.Fields<Endpoint>, ActionOf<Endpoint>, Endpoint> => {
+  const { endpoint, id, params, query } = config as DeriveConfig<Endpoint> & {
+    readonly params?: unknown
+    readonly query?: unknown
+  }
+  const action = (params === undefined && query === undefined
+    ? endpoint.path
+    : urlFor(endpoint, { params, query })) as ActionOf<Endpoint>
   const form = make({
     id,
-    action: endpoint.path,
+    action,
     payload: HttpFormEndpoint.getPayload(endpoint),
     rules: HttpFormEndpoint.getRules(endpoint)
   })
 
-  const bind = (bound: Form<HttpFormEndpoint.Fields<Endpoint>, Endpoint["path"]>) =>
+  const bind = (bound: Form<HttpFormEndpoint.Fields<Endpoint>, ActionOf<Endpoint>>) =>
     Object.freeze({
       ...bound,
       endpoint,

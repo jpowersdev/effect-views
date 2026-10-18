@@ -70,6 +70,11 @@ export const isHtml = (value: unknown): value is Html =>
 
 export const render = (self: Html): string => self.value
 
+/**
+ * Escapes text for an element or an attribute value. Carriage returns become
+ * character references, since HTML parsing turns a raw CR or CRLF into LF, so
+ * text such as an input's value comes back exactly as it was.
+ */
 export const escapeText = (value: string): string =>
   value
     .replaceAll("&", "&amp;")
@@ -77,6 +82,7 @@ export const escapeText = (value: string): string =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+    .replaceAll("\r", "&#13;")
 
 export const text = (value: string | number | bigint): Html => make(escapeText(String(value)))
 

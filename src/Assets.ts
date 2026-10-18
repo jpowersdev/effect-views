@@ -10,6 +10,7 @@ import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
+import * as Csp from "./Csp.js"
 import * as Html from "./Html.js"
 
 /** What a component contributes to the shared stylesheet; see Component.make. */
@@ -40,6 +41,9 @@ export interface Manifest {
   readonly prefix: `/${string}`
   /** Tags for the page head: the stylesheet and htmx. */
   readonly head: Html.Html
+  /** The stylesheets and the scripts the head loads, in order. */
+  readonly stylesheets: ReadonlyArray<string>
+  readonly scripts: ReadonlyArray<string>
   /** Files served by Assets.layer, by path. */
   readonly files: ReadonlyMap<string, File>
   /** Components whose styles the files include. */
@@ -95,13 +99,24 @@ const readExtension = (name: string) =>
       new AssetsError({ message: `Could not find the htmx ${name} extension; install htmx-ext-${name}`, cause })
   })
 
+const headTags = (
+  stylesheets: ReadonlyArray<string>,
+  scripts: ReadonlyArray<string>,
+  nonce: string | undefined
+): Html.Html =>
+  Html.fragment(
+    stylesheets.map((href) => Html.element("link", { rel: "stylesheet", href })),
+    scripts.map((src) => Html.element("script", { src, defer: true, nonce }))
+  )
+
 /** Builds the stylesheet for every component defined so far, with htmx unless left out. */
 export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
   Effect.gen(function* () {
     const prefix = prefixOf(options)
     const included = [...definitions.values()]
     const files = new Map<string, File>()
-    const head: Array<Html.Html> = []
+    const stylesheets: Array<string> = []
+    const scripts: Array<string> = []
 
     const add = (name: string, extension: string, contentType: string, body: Uint8Array): File => {
       const fileName = `${name}-${hash(body)}.${extension}`
@@ -114,26 +129,28 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
     if (styles.length > 0) {
       const css = styles.map((definition) => definition.style).join("\n\n")
       const file = add("components", "css", "text/css; charset=utf-8", encoder.encode(css))
-      head.push(Html.element("link", { rel: "stylesheet", href: file.path }))
+      stylesheets.push(file.path)
     }
 
     const htmx = options?.htmx
     if (htmx === undefined) {
       const file = add("htmx", "js", "text/javascript; charset=utf-8", yield* readHtmx)
-      head.push(Html.element("script", { src: file.path, defer: true }))
+      scripts.push(file.path)
     } else if (htmx !== false) {
-      head.push(Html.element("script", { src: htmx.url, defer: true }))
+      scripts.push(htmx.url)
     }
 
     // Deferred scripts run in order, so extensions load after htmx
     for (const name of options?.extensions ?? []) {
       const file = add(`htmx-ext-${name}`, "js", "text/javascript; charset=utf-8", yield* readExtension(name))
-      head.push(Html.element("script", { src: file.path, defer: true }))
+      scripts.push(file.path)
     }
 
     return {
       prefix,
-      head: Html.fragment(head),
+      head: headTags(stylesheets, scripts, undefined),
+      stylesheets,
+      scripts,
       files,
       components: new Set(included.map((definition) => definition.tag))
     }
@@ -186,8 +203,8 @@ export const current = (): Manifest | undefined => {
 }
 
 /**
- * The stylesheet and htmx, for the page head. Requires
- * the Assets service; see layer.
+ * The stylesheet and htmx, for the page head, with the response's nonce on the
+ * scripts when `Csp.layer` is in use. Requires the Assets service; see layer.
  *
  * ```tsx
  * <head>
@@ -201,5 +218,6 @@ export const Head = (): Html.Html => {
   if (manifest === undefined) {
     throw new Error("Assets.Head needs the Assets service; provide Assets.layer() to HttpRouter.serve")
   }
-  return manifest.head
+  const nonce = Csp.nonce()
+  return nonce === undefined ? manifest.head : headTags(manifest.stylesheets, manifest.scripts, nonce)
 }
