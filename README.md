@@ -269,6 +269,21 @@ const Rename = Form.derive({ id: `rename-${todo.id}`, endpoint: rename, params: 
 A form's `id` prefixes its controls' ids, so give each one on a page its own,
 such as one per record.
 
+### Hidden fields
+
+`Hidden` renders a hidden input for a field of any type, such as a number, a
+literal, or JSON, with its value encoded by the field's schema:
+
+```tsx
+const Comment = Form.derive({ id: "comment", endpoint: comment })
+
+<Comment.Hidden name="anchor" value={{ start: 1, end: 4 }} />
+// <input id="comment-anchor" name="anchor" type="hidden" value="{&quot;start&quot;:1,&quot;end&quot;:4}">
+```
+
+Leave `value` out for one the page's own script fills in, finding the input by
+`Comment.idFor("anchor")`.
+
 ### Forms without an HttpFormEndpoint
 
 `HttpFormEndpoint.make` is a shortcut. A form built with `Form.make` has the

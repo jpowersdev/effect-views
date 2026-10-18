@@ -218,6 +218,46 @@ Vitest.describe("Form", () => {
     Vitest.expect(Html.render(<TodoForm.Summary />)).toBe("")
   })
 
+  Vitest.it("renders hidden fields of any type, encoded by their schemas", () => {
+    const Comment = Form.make({
+      id: "comment",
+      action: "/comments",
+      payload: Schema.Struct({
+        anchor: Schema.fromJsonString(Schema.Struct({ start: Schema.Int, end: Schema.Int })),
+        start: Schema.Int,
+        visibility: Schema.Literals(["public", "private"]),
+        body: Schema.String
+      })
+    })
+
+    Vitest.expect(Html.render(<Comment.Hidden name="anchor" value={{ start: 1, end: 4 }} />)).toBe(
+      `<input id="comment-anchor" name="anchor" type="hidden" value="{&quot;start&quot;:1,&quot;end&quot;:4}">`
+    )
+    Vitest.expect(Html.render(<Comment.Hidden name="start" value={12} />)).toBe(
+      `<input id="comment-start" name="start" type="hidden" value="12">`
+    )
+    // Left for the page's script to fill in
+    Vitest.expect(Html.render(<Comment.Hidden name="visibility" data-default="private" />)).toBe(
+      `<input data-default="private" id="comment-visibility" name="visibility" type="hidden">`
+    )
+    // A rejected submission keeps what was sent
+    const Filled = Comment.with(new Submission.Invalid({ values: { start: "twelve" }, errors: {} }))
+    Vitest.expect(Html.render(<Filled.Hidden name="start" value={12} />)).toBe(
+      `<input id="comment-start" name="start" type="hidden" value="twelve">`
+    )
+
+    // Not called: the values are checked against the fields' types.
+    const invalid = () => [
+      // @ts-expect-error start is a number
+      <Comment.Hidden name="start" value="12" />,
+      // @ts-expect-error not one of the literals
+      <Comment.Hidden name="visibility" value="secret" />,
+      // @ts-expect-error "missing" is not part of the schema
+      <Comment.Hidden name="missing" />
+    ]
+    Vitest.expect(invalid).toBeTypeOf("function")
+  })
+
   Vitest.it("fills in the action for an endpoint with params and a query", async () => {
     const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
       params: { id: Schema.Int },

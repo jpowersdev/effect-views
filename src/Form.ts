@@ -1,4 +1,4 @@
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
 import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiClient from "effect/http-api/HttpApiClient"
 import type * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
@@ -77,6 +77,18 @@ export interface SelectOption {
   readonly disabled?: boolean
 }
 
+export type HiddenProps<
+  Fields extends Schema.Struct.Fields,
+  Name extends FieldName<Fields>
+> = NativeAttributes<"children" | "id" | "name" | "type" | "value"> & {
+  readonly name: Name
+  /**
+   * The field's value, encoded by its schema as the form submits it. Leave it
+   * out for a value the page's own script fills in.
+   */
+  readonly value?: Fields[Name]["Type"]
+}
+
 export type SelectProps<Name extends string> = NativeAttributes<"id" | "name" | "value"> & {
   readonly name: Name
   /** Rendered as option elements, so a submitted value can be selected again. */
@@ -144,6 +156,11 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
   readonly Textarea: <Name extends TextFieldName<Fields>>(props: TextareaProps<Name>) => Html.Html
   readonly Checkbox: <Name extends CheckboxFieldName<Fields>>(props: CheckboxProps<Name>) => Html.Html
   readonly Select: <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>) => Html.Html
+  /**
+   * A hidden input for a field of any type, such as a number, a literal, or
+   * JSON, with its value encoded by the field's schema.
+   */
+  readonly Hidden: <Name extends FieldName<Fields>>(props: HiddenProps<Fields, Name>) => Html.Html
   /**
    * A field's error messages, or the form's own messages without a name, or
    * nothing when there are none. Controls and the form refer to it with
@@ -308,6 +325,24 @@ export const make = <
       })
     }
 
+    // A value as the form submits it: the field's schema, encoded as URL-encoded values are decoded
+    const encode = (name: string, value: unknown): string | undefined => {
+      const field = Schema.Struct({ [name]: schema.fields[name]! }) as Schema.Struct<Schema.Struct.Fields>
+      const codec = Schema.toCodecStringTree(field) as unknown as Schema.Codec<unknown, Submission.Values>
+      return firstValue(Schema.encodeSync(codec)({ [name]: value })[name])
+    }
+
+    const Hidden = <Name extends FieldName<Fields>>(props: HiddenProps<Fields, Name>): Html.Html => {
+      const { name, value, ...attributes } = props
+      return Html.element("input", {
+        ...attributes,
+        id: idFor(name),
+        name,
+        type: "hidden",
+        value: valueOf(name) ?? (value === undefined ? undefined : encode(name, value))
+      })
+    }
+
     const Select = <Name extends SelectFieldName<Fields>>(props: SelectProps<Name>): Html.Html => {
       const { children, name, options, value, ...attributes } = props
       const selected = valueOf(name) ?? value
@@ -383,6 +418,7 @@ export const make = <
       Textarea,
       Checkbox,
       Select,
+      Hidden,
       Error,
       Summary,
       messages,
