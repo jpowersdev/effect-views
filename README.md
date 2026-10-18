@@ -54,6 +54,16 @@ resets when the server restarts.
 The [example walkthroughs](examples/README.md) explain what to try, where to
 read the code, and how to make requests with curl.
 
+## Installing from Git
+
+`dist` isn't committed, so an application that installs effect-views from its
+Git repository uses the TypeScript sources instead, under the
+`effect-views-source` export condition. Add the condition to TypeScript's
+`customConditions`, to the bundler (esbuild's `conditions`) and to the test
+runner (Vite's `resolve.conditions` and `ssr.resolve.conditions`), and have
+them compile effect-views like your own code; for Vitest, list it in
+`server.deps.inline`.
+
 ## A schema-bound form
 
 The form below takes its action and field names from a POST endpoint. It shows

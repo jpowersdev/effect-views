@@ -11,72 +11,89 @@
   "packageManager": "pnpm@11.15.0",
   "exports": {
     ".": {
+      "effect-views-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./Assets": {
+      "effect-views-source": "./src/Assets.ts",
       "types": "./dist/Assets.d.ts",
       "default": "./dist/Assets.js"
     },
     "./Component": {
+      "effect-views-source": "./src/Component.ts",
       "types": "./dist/Component.d.ts",
       "default": "./dist/Component.js"
     },
     "./Csrf": {
+      "effect-views-source": "./src/Csrf.ts",
       "types": "./dist/Csrf.d.ts",
       "default": "./dist/Csrf.js"
     },
     "./ErrorPage": {
+      "effect-views-source": "./src/ErrorPage.ts",
       "types": "./dist/ErrorPage.d.ts",
       "default": "./dist/ErrorPage.js"
     },
     "./Form": {
+      "effect-views-source": "./src/Form.ts",
       "types": "./dist/Form.d.ts",
       "default": "./dist/Form.js"
     },
     "./Html": {
+      "effect-views-source": "./src/Html.ts",
       "types": "./dist/Html.d.ts",
       "default": "./dist/Html.js"
     },
     "./Htmx": {
+      "effect-views-source": "./src/Htmx.ts",
       "types": "./dist/Htmx.d.ts",
       "default": "./dist/Htmx.js"
     },
     "./HttpFormEndpoint": {
+      "effect-views-source": "./src/HttpFormEndpoint.ts",
       "types": "./dist/HttpFormEndpoint.d.ts",
       "default": "./dist/HttpFormEndpoint.js"
     },
     "./HttpViewEndpoint": {
+      "effect-views-source": "./src/HttpViewEndpoint.ts",
       "types": "./dist/HttpViewEndpoint.d.ts",
       "default": "./dist/HttpViewEndpoint.js"
     },
     "./LiveAction": {
+      "effect-views-source": "./src/LiveAction.ts",
       "types": "./dist/LiveAction.d.ts",
       "default": "./dist/LiveAction.js"
     },
     "./LiveComponent": {
+      "effect-views-source": "./src/LiveComponent.ts",
       "types": "./dist/LiveComponent.d.ts",
       "default": "./dist/LiveComponent.js"
     },
     "./Submission": {
+      "effect-views-source": "./src/Submission.ts",
       "types": "./dist/Submission.d.ts",
       "default": "./dist/Submission.js"
     },
     "./View": {
+      "effect-views-source": "./src/View.ts",
       "types": "./dist/View.d.ts",
       "default": "./dist/View.js"
     },
     "./jsx-runtime": {
+      "effect-views-source": "./src/jsx-runtime.ts",
       "types": "./dist/jsx-runtime.d.ts",
       "default": "./dist/jsx-runtime.js"
     },
     "./jsx-dev-runtime": {
+      "effect-views-source": "./src/jsx-dev-runtime.ts",
       "types": "./dist/jsx-dev-runtime.d.ts",
       "default": "./dist/jsx-dev-runtime.js"
     }
   },
   "files": [
     "dist",
+    "src/**/*.ts",
     "README.md",
     "LICENSE"
   ],
