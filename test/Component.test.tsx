@@ -1,9 +1,17 @@
 /** @jsxImportSource effect-views */
 
+import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Etag from "effect/http/Etag"
 import * as HttpRouter from "effect/http/HttpRouter"
-import * as HttpServerRequest from "effect/http/HttpServerRequest"
+import * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
+import { mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as Vitest from "vitest"
 
 import * as Assets from "../src/Assets.js"
@@ -11,6 +19,7 @@ import * as Component from "../src/Component.js"
 import { css } from "../src/Component.js"
 import * as Html from "../src/Html.js"
 import * as Htmx from "../src/Htmx.js"
+import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 
 const Card = Component.make("test-card", {
   style: css`
@@ -40,20 +49,33 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
 )
 const page = Htmx.layout(Page)
 
-const makeApp = (options?: Assets.Options) => HttpRouter.toWebHandler(
-  Layer.mergeAll(
-    HttpRouter.add("GET", "/", Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest
-      return Html.response(page(request, <><Card title="Hello">Body</Card><Plain /></>))
-    })),
-    HttpRouter.add("GET", "/late", Effect.sync(() => {
-      const Late = Component.make("test-late", { style: css`p { color: red; }`, render: () => <p /> })
-      return Html.response(<Late />)
-    })),
-    Assets.routes
-  ).pipe(Layer.provide(Assets.layer(options))),
-  { disableLogger: true }
+const pages = HttpApiGroup.make("pages").add(
+  HttpViewEndpoint.get("home", "/"),
+  HttpViewEndpoint.get("late", "/late"),
+  HttpViewEndpoint.get("app", "/app")
 )
+
+const makeApp = (options?: Assets.Options) => {
+  const api = HttpApi.make("test")
+    .add(pages)
+    .add(Assets.groupAt((options?.prefix ?? "/assets") as `/${string}`))
+  const handlers = HttpApiBuilder.group(api, "pages", (handlers) =>
+    handlers
+      .handle("home", ({ request }) => Effect.succeed(page(request, <><Card title="Hello">Body</Card><Plain /></>)))
+      .handle("late", () =>
+        Effect.sync(() => {
+          const Late = Component.make("test-late", { style: css`p { color: red; }`, render: () => <p /> })
+          return <Late />
+        }))
+      .handle("app", () => Effect.sync(() => <link rel="stylesheet" href={Assets.url("app.css")} />)))
+  return HttpRouter.toWebHandler(
+    HttpApiBuilder.layer(api).pipe(
+      Layer.provide([handlers, Assets.groupLayer(api)]),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer(options)))
+    ),
+    { disableLogger: true }
+  )
+}
 
 const get = async (handler: (request: Request) => Promise<Response>, path: string) => {
   const response = await handler(new Request(`http://localhost${path}`))
@@ -128,6 +150,37 @@ Vitest.describe("Assets.layer", () => {
     } finally {
       await elsewhere.dispose()
       await without.dispose()
+    }
+  })
+
+  Vitest.it("serves the application's own files, under names that change with their contents", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "effect-views-assets-"))
+    await writeFile(join(directory, "app.css"), "body { margin: 0; }")
+    const { dispose, handler } = makeApp({ htmx: false, files: { "app.css": join(directory, "app.css") } })
+    try {
+      const [path] = assetPaths((await get(handler, "/app")).body)
+      Vitest.expect(path).toMatch(/^\/assets\/app-[0-9a-f]{12}\.css$/)
+      const file = await get(handler, path!)
+      Vitest.expect(file.headers.get("content-type")).toBe("text/css; charset=utf-8")
+      Vitest.expect(file.body).toBe("body { margin: 0; }")
+    } finally {
+      await dispose()
+    }
+  })
+
+  Vitest.it("refuses an assets group at another prefix than the files", async () => {
+    const api = HttpApi.make("test").add(Assets.groupAt("/static"))
+    const { dispose, handler } = HttpRouter.toWebHandler(
+      HttpApiBuilder.layer(api).pipe(
+        Layer.provide(Assets.groupLayer(api)),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ htmx: false })))
+      ),
+      { disableLogger: true }
+    )
+    try {
+      await Vitest.expect(handler(new Request("http://localhost/static/x"))).rejects.toThrow(/Assets.groupAt\("\/assets"\)/)
+    } finally {
+      await dispose().catch(() => undefined)
     }
   })
 

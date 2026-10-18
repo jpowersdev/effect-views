@@ -1,41 +1,58 @@
 /** @jsxImportSource effect-views */
 
+import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Etag from "effect/http/Etag"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 import * as Vitest from "vitest"
 
 import * as Assets from "../src/Assets.js"
 import * as Csp from "../src/Csp.js"
 import * as Html from "../src/Html.js"
 import * as Htmx from "../src/Htmx.js"
+import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 
-// A page with an inline script it trusts, htmx's configuration, and the assets
-const page = Effect.sync(() =>
-  Html.response(
-    <html>
-      <head>
-        <Htmx.Config />
-        <Assets.Head />
-      </head>
-      <body>
-        <script nonce={Csp.nonce()}>{Html.unsafe("document.body.dataset.ready = 'yes'")}</script>
-      </body>
-    </html>
-  )
-)
+const api = HttpApi.make("test")
+  .add(HttpApiGroup.make("pages").add(HttpViewEndpoint.get("page", "/"), HttpViewEndpoint.get("own", "/own")))
+  .add(Assets.group)
+
+const pages = HttpApiBuilder.group(api, "pages", (handlers) =>
+  handlers
+    // A page with an inline script it trusts, htmx's configuration, and the assets
+    .handle("page", () =>
+      Effect.sync(() => (
+        <html>
+          <head>
+            <Htmx.Config />
+            <Assets.Head />
+          </head>
+          <body>
+            <script nonce={Csp.nonce()}>{Html.unsafe("document.body.dataset.ready = 'yes'")}</script>
+          </body>
+        </html>
+      )))
+    .handle("own", () =>
+      Effect.succeed(HttpServerResponse.text("Hi", { headers: { "content-security-policy": "default-src 'none'" } }))))
 
 const makeApp = (options?: Csp.Options) =>
   HttpRouter.toWebHandler(
     Layer.mergeAll(
-      HttpRouter.add("GET", "/", page),
-      HttpRouter.add("GET", "/own", Effect.succeed(HttpServerResponse.text("Hi", {
-        headers: { "content-security-policy": "default-src 'none'" }
-      }))),
-      Assets.routes,
+      HttpApiBuilder.layer(api).pipe(Layer.provide([pages, Assets.groupLayer(api)])),
       Csp.layer(options)
-    ).pipe(Layer.provide(Assets.layer({ htmx: { url: "/vendor/htmx.js" } }))),
+    ).pipe(
+      Layer.provideMerge(Layer.mergeAll(
+        NodeServices.layer,
+        NodeHttpPlatform.layer,
+        Etag.layer,
+        Assets.layer({ htmx: { url: "/vendor/htmx.js" } })
+      ))
+    ),
     { disableLogger: true }
   )
 

@@ -14,7 +14,8 @@ Vitest.describe("orders example", () => {
   Vitest.it("serves documents and htmx fragments from the same view endpoints", async () => {
     const app = Layer.mergeAll(
       App.routes.pipe(
-        Layer.provide(Layer.mergeAll(
+        // Merged, so pages rendered by the error middleware find the assets too
+        Layer.provideMerge(Layer.mergeAll(
           NodeServices.layer,
           NodeHttpPlatform.layer,
           Etag.layer,

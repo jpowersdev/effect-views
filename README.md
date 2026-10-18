@@ -616,17 +616,37 @@ Give an action a `description` to summarize it in the OpenAPI document.
 ### Assets
 
 `Assets.layer` builds the files when the server starts: htmx from the installed
-`htmx.org`, and one stylesheet for every component. `Assets.routes` serves them
-with names that change with their contents, cached for a year. Put
-`<Assets.Head />` in the page head, and provide `Assets.layer` to
-`HttpRouter.serve`, rather than adding it to the routes, so that error pages
-rendered by middleware can render the head too.
+`htmx.org`, one stylesheet for every component, and the application's own
+files. They're served by an HttpApi group, with names that change with their
+contents, cached for a year. Add `Assets.group` to the application's API and
+provide `Assets.groupLayer` to its layer:
+
+```ts
+export const Api = HttpApi.make("app").add(Views.group).add(Assets.group)
+
+const ApiRoutes = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide([ViewsLayer, Assets.groupLayer(Api)])
+)
+
+HttpRouter.serve(Layer.mergeAll(ApiRoutes, ErrorPages)).pipe(
+  Layer.provide(Assets.layer({ files: { "app.css": new URL("./public/app.css", import.meta.url) } })),
+  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
+)
+```
+
+Put `<Assets.Head />` in the page head for htmx and the components' styles, and
+refer to the application's files with `Assets.url`:
+`<link rel="stylesheet" href={Assets.url("app.css")} />`. Provide
+`Assets.layer` to `HttpRouter.serve`, rather than only to the API's layer, so
+that error pages rendered by middleware can render the head too; with
+`HttpRouter.toWebHandler`, use `Layer.provideMerge`.
 
 Pass `htmx: { url }` to load htmx from elsewhere, `htmx: false` to leave it
 out, `extensions: ["sse"]` to serve htmx extensions from their `htmx-ext-<name>`
-packages, or `prefix` to serve the files from somewhere other than `/assets`.
-Components must be defined before the layer is built; rendering one defined
-later is an error.
+packages, or `prefix` to serve the files from somewhere other than `/assets`,
+with `Assets.groupAt(prefix)` in the API instead of `Assets.group`. Components
+must be defined before the layer is built; rendering one defined later is an
+error.
 
 ## Streaming views
 

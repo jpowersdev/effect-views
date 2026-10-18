@@ -14,7 +14,7 @@ import * as RootApi from "./RootApi.js"
 import * as TodosHttp from "./Todos/Http.js"
 
 const ApiRoutes = HttpApiBuilder.layer(RootApi.Api, { openapiPath: "/openapi.json" }).pipe(
-  Layer.provide([TodosHttp.TodosApiLayer, TodosHttp.TodosViewsLayer])
+  Layer.provide([TodosHttp.TodosApiLayer, TodosHttp.TodosViewsLayer, Assets.groupLayer(RootApi.Api)])
 )
 
 const DocsRoute = HttpApiScalar.layer(RootApi.Api, { path: "/docs" })
@@ -22,7 +22,6 @@ const DocsRoute = HttpApiScalar.layer(RootApi.Api, { path: "/docs" })
 export const Routes = Layer.mergeAll(
   ApiRoutes,
   DocsRoute,
-  Assets.routes,
   Htmx.varyLayer,
   Csrf.layer()
 )

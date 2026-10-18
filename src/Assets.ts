@@ -3,9 +3,15 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
-import * as HttpRouter from "effect/http/HttpRouter"
-import * as HttpServerRequest from "effect/http/HttpServerRequest"
+import * as Schema from "effect/Schema"
+import type * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import type * as HttpApi from "effect/http-api/HttpApi"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
+import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
+import * as HttpApiError from "effect/http-api/HttpApiError"
+import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
+import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
@@ -44,6 +50,8 @@ export interface Manifest {
   /** The stylesheets and the scripts the head loads, in order. */
   readonly stylesheets: ReadonlyArray<string>
   readonly scripts: ReadonlyArray<string>
+  /** Where the application's own files are served, by name; see Options.files and url. */
+  readonly urls: ReadonlyMap<string, string>
   /** Files served by Assets.layer, by path. */
   readonly files: ReadonlyMap<string, File>
   /** Components whose styles the files include. */
@@ -71,7 +79,38 @@ export interface Options {
    * packages, such as "sse" from `htmx-ext-sse`.
    */
   readonly extensions?: ReadonlyArray<string>
+  /**
+   * The application's own files, such as its stylesheet and scripts, by the
+   * name pages refer to them with in `url`, and where to read them from. They
+   * are read when the layer is built and served with the other assets.
+   *
+   * ```ts
+   * files: { "app.css": new URL("../public/app.css", import.meta.url) }
+   * ```
+   */
+  readonly files?: Readonly<Record<string, string | URL>>
 }
+
+const contentTypes: Readonly<Record<string, string>> = {
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  json: "application/json",
+  map: "application/json",
+  svg: "image/svg+xml",
+  png: "image/png",
+  jpg: "image/jpeg",
+  webp: "image/webp",
+  ico: "image/x-icon",
+  woff2: "font/woff2",
+  txt: "text/plain; charset=utf-8"
+}
+
+const readFileAt = (name: string, path: string | URL) =>
+  Effect.tryPromise({
+    try: () => readFile(path),
+    catch: (cause) => new AssetsError({ message: `Could not read ${name} from ${String(path)}`, cause })
+  })
 
 const encoder = new TextEncoder()
 
@@ -117,6 +156,7 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
     const files = new Map<string, File>()
     const stylesheets: Array<string> = []
     const scripts: Array<string> = []
+    const urls = new Map<string, string>()
 
     const add = (name: string, extension: string, contentType: string, body: Uint8Array): File => {
       const fileName = `${name}-${hash(body)}.${extension}`
@@ -146,38 +186,89 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       scripts.push(file.path)
     }
 
+    for (const [name, path] of Object.entries(options?.files ?? {})) {
+      const dot = name.lastIndexOf(".")
+      const [base, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot + 1)] : [name, ""]
+      const contentType = contentTypes[extension.toLowerCase()] ?? "application/octet-stream"
+      urls.set(name, add(base, extension, contentType, yield* readFileAt(name, path)).path)
+    }
+
     return {
       prefix,
       head: headTags(stylesheets, scripts, undefined),
       stylesheets,
       scripts,
+      urls,
       files,
       components: new Set(included.map((definition) => definition.tag))
     }
   })
 
-const serve = (manifest: Manifest) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest
-    const file = manifest.files.get(new URL(request.url, "http://localhost").pathname)
-    if (file === undefined) return HttpServerResponse.text("Not found", { status: 404 })
-    return HttpServerResponse.uint8Array(file.body, {
-      contentType: file.contentType,
-      // File names change with their contents, so they never need to be fetched again
-      headers: { "cache-control": "public, max-age=31536000, immutable" }
-    })
+const fileEndpoint = <const Path extends HttpRouter.PathInput>(path: Path) =>
+  HttpApiEndpoint.get("file", path, {
+    params: { file: Schema.String },
+    success: Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
+    error: HttpApiError.NotFound
   })
 
 /**
- * Builds the assets when the server starts. Provide it to `HttpRouter.serve`,
- * rather than adding it to the routes, so that every request can render
- * `<Assets.Head />`, including error pages rendered by middleware. Components
- * must be defined before the layer is built; import their modules first.
+ * An HttpApi group serving the files under another prefix, which must match
+ * the `prefix` given to layer.
+ */
+export const groupAt = <const Prefix extends `/${string}`>(prefix: Prefix) =>
+  HttpApiGroup.make("assets").add(fileEndpoint(`${prefix}/:file`))
+
+/**
+ * An HttpApi group serving the files Assets.layer builds, under "/assets": add
+ * it to the application's API, and provide `groupLayer` to its
+ * `HttpApiBuilder.layer`.
  *
  * ```ts
- * const routes = Layer.mergeAll(appRoutes, Assets.routes)
+ * const Api = HttpApi.make("app").add(Views.group).add(Assets.group)
  *
- * routes.pipe(
+ * HttpApiBuilder.layer(Api).pipe(Layer.provide([ViewsLayer, Assets.groupLayer(Api)]))
+ * ```
+ */
+export const group = groupAt("/assets")
+
+/**
+ * Implements the API's assets group: each file, with a name that changes with
+ * its contents, cached for a year. Requires the Assets service.
+ */
+export const groupLayer = <ApiId extends string, Groups extends HttpApiGroup.Constraint>(
+  api: HttpApi.HttpApi<ApiId, Groups>
+): Layer.Layer<HttpApiGroup.Service<ApiId, "assets">, never, Assets> =>
+  HttpApiBuilder.group(api as any, "assets", (handlers: any) =>
+    Effect.gen(function* () {
+      const manifest = yield* Assets
+      const declared = (api.groups as unknown as Record<string, HttpApiGroup.Top>)["assets"]?.endpoints["file"]?.path
+      if (declared !== `${manifest.prefix}/:file`) {
+        return yield* Effect.die(
+          `Assets.layer serves files under ${manifest.prefix}, but the API's assets group is at ${String(declared)}; ` +
+            `add Assets.groupAt("${manifest.prefix}") to the API instead`
+        )
+      }
+      return handlers.handle("file", ({ params }: { readonly params: { readonly file: string } }) => {
+        const file = manifest.files.get(`${manifest.prefix}/${params.file}`)
+        if (file === undefined) return Effect.fail(new HttpApiError.NotFound({}))
+        return Effect.succeed(HttpServerResponse.uint8Array(file.body, {
+          contentType: file.contentType,
+          // File names change with their contents, so they never need to be fetched again
+          headers: { "cache-control": "public, max-age=31536000, immutable" }
+        }))
+      })
+    })) as any
+
+/**
+ * Builds the assets when the server starts. Provide it to `HttpRouter.serve`,
+ * rather than only to the API's layer, so that every request can render
+ * `<Assets.Head />`, including error pages rendered by middleware; with
+ * `HttpRouter.toWebHandler`, use `Layer.provideMerge`. Components must be
+ * defined before the layer is built; import their modules first.
+ *
+ * ```ts
+ * HttpApiBuilder.layer(Api).pipe(
+ *   Layer.provide([ViewsLayer, Assets.groupLayer(Api)]),
  *   HttpRouter.serve,
  *   Layer.provide(Assets.layer()),
  *   Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
@@ -186,15 +277,20 @@ const serve = (manifest: Manifest) =>
  */
 export const layer = (options?: Options): Layer.Layer<Assets, AssetsError> => Layer.effect(Assets, make(options))
 
-/** Serves the files under the prefix, with names that change with their contents. */
-export const routes = Layer.unwrap(Effect.gen(function* () {
-  const manifest = yield* Assets
-  return Layer.mergeAll(
-    HttpRouter.add("GET", `${manifest.prefix}/:file`, serve(manifest)),
-    // For HttpRouter.toWebHandler, which handles requests with the services its layers provide
-    Layer.succeed(Assets)(manifest)
-  )
-}))
+/**
+ * Where one of the application's files is served, for a link or a script:
+ * `<link rel="stylesheet" href={Assets.url("app.css")} />`. Requires the
+ * Assets service, built with the file in `files`.
+ */
+export const url = (name: string): string => {
+  const manifest = current()
+  if (manifest === undefined) {
+    throw new Error("Assets.url needs the Assets service; provide Assets.layer() to HttpRouter.serve")
+  }
+  const path = manifest.urls.get(name)
+  if (path === undefined) throw new Error(`Assets.layer has no file named ${name}; add it to the files option`)
+  return path
+}
 
 /** The assets for the request being handled, if Assets.layer is in use. */
 export const current = (): Manifest | undefined => {

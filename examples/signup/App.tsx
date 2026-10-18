@@ -115,7 +115,7 @@ export const api = HttpApi.make("SignUp").add(
     .add(showForm)
     .add(signUp)
     .add(welcome)
-)
+).add(Assets.group)
 
 // Views ----------------------------------------------------------------------
 
@@ -284,7 +284,6 @@ const SignUpHandlers = HttpApiBuilder.group(
   })
 ).pipe(Layer.provide(AccountsLive))
 
-export const routes = Layer.mergeAll(
-  HttpApiBuilder.layer(api).pipe(Layer.provide(SignUpHandlers)),
-  Assets.routes
+export const routes = HttpApiBuilder.layer(api).pipe(
+  Layer.provide([SignUpHandlers, Assets.groupLayer(api)])
 )
