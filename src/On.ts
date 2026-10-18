@@ -64,12 +64,42 @@ export interface ServerAction {
   readonly debounce?: number
 }
 
+/**
+ * The events the runtime handles: it listens for each once, on the document,
+ * so only events that bubble are here. Use focusin and focusout rather than
+ * focus and blur, and pointerover and pointerout rather than enter and leave.
+ */
+export const events = [
+  "click",
+  "dblclick",
+  "contextmenu",
+  "input",
+  "change",
+  "submit",
+  "keydown",
+  "keyup",
+  "focusin",
+  "focusout",
+  "pointerdown",
+  "pointerup",
+  "pointerover",
+  "pointerout",
+  "dragstart",
+  "dragend",
+  "dragover",
+  "drop"
+] as const
+
+export type EventName = typeof events[number]
+
 /** Attributes binding an event to commands; spread them onto an element. */
 export type Binding<Event extends string> = { readonly [K in `data-on-${Event}`]: string }
 
 /** Runs commands when the event happens on the element or inside it. */
-export const event = <const Event extends string>(name: Event, ...commands: ReadonlyArray<Command>): Binding<Event> => {
-  if (!/^[a-z]+$/.test(name)) throw new TypeError(`An event name must be lowercase letters, such as "click": ${name}`)
+export const event = <const Event extends EventName>(name: Event, ...commands: ReadonlyArray<Command>): Binding<Event> => {
+  if (!(events as ReadonlyArray<string>).includes(name)) {
+    throw new TypeError(`The runtime does not handle "${name}" events; use one of: ${events.join(", ")}`)
+  }
   return { [`data-on-${name}`]: JSON.stringify(commands) } as Binding<Event>
 }
 

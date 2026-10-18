@@ -17,6 +17,7 @@ import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware"
 import * as OpenApi from "effect/http-api/OpenApi"
 import * as Vitest from "vitest"
 
+import * as Assets from "../src/Assets.js"
 import * as Html from "../src/Html.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 import * as LiveAction from "../src/LiveAction.js"
@@ -103,7 +104,9 @@ const makeApp = () => HttpRouter.toWebHandler(
     )
   ).pipe(
     // Pages and actions sign with the same key, as when it is provided to HttpRouter.serve
-    Layer.provideMerge(LiveComponent.secret(Redacted.make("test secret")))
+    Layer.provideMerge(LiveComponent.secret(Redacted.make("test secret"))),
+    // The runtime, which pages with live components need
+    Layer.provideMerge(Assets.layer({ htmx: false, api: Api }))
   ),
   { disableLogger: true }
 )

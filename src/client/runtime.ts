@@ -15,18 +15,17 @@ import * as FiberSet from "effect/FiberSet"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 
 import * as Html from "../Html.js"
 import * as LiveComponent from "../LiveComponent.js"
 import * as On from "../On.js"
-import { morphChildren, morphElement } from "./morph.js"
+import { fieldValue, morphChildren, morphElement } from "./morph.js"
 
 const selector = "[data-live]"
 
-/** The events On binds; each is handled once, on the document. */
-const events = ["click", "input", "change", "submit", "keydown", "keyup", "focusin", "focusout"] as const
 
 interface Instance {
   /** Runs a command from a binding on `element`, inside the component. */
@@ -95,9 +94,19 @@ const formValues = (host: Element): URLSearchParams => {
   return values
 }
 
+/** What each of the component's fields shows now, to tell what was typed while a request was in flight. */
+const fieldValues = (host: Element): Map<Element, string> => {
+  const values = new Map<Element, string>()
+  for (const field of Array.from(host.querySelectorAll("input, select, textarea"))) {
+    if (field.closest(selector) !== host) continue
+    values.set(field, fieldValue(field))
+  }
+  return values
+}
+
 const post = (host: Element, command: On.ServerAction): Effect.Effect<void, unknown> =>
   Effect.gen(function* () {
-    if (command.debounce !== undefined) yield* Effect.sleep(command.debounce)
+    const sent = fieldValues(host)
     const body = formValues(host)
     for (const [name, value] of Object.entries(command.payload)) {
       body.delete(name)
@@ -109,17 +118,24 @@ const post = (host: Element, command: On.ServerAction): Effect.Effect<void, unkn
     )
     const html = yield* Effect.tryPromise(() => response.text())
     if (!response.ok) return yield* Effect.fail(new Error(`${response.status} ${response.statusText}: ${html}`))
-    morphElement(host, html)
+    // The response decides what the fields show, except where the person typed after the request was sent
+    morphElement(host, html, sent)
   })
 
 const mountServer = (element: HTMLElement): void => {
   const tag = element.localName
   const scope = Effect.runSync(Scope.make())
   const runner = runnerIn(scope)
+  // One request at a time, in order: each sends the state the last one returned, so none is lost or undone
+  const turn = Semaphore.makeUnsafe(1)
   instances.set(element, {
     run: (command) => {
       if (command._tag !== "Server") return report(tag, `runs on the server, but received ${command._tag}`)
-      const run = post(element, command).pipe(
+      const run = Effect.gen(function* () {
+        // Waiting for events to stop does not hold up the component's other actions
+        if (command.debounce !== undefined) yield* Effect.sleep(command.debounce)
+        yield* turn.withPermits(1)(post(element, command))
+      }).pipe(
         Effect.catchCause((cause) => Effect.sync(() => report(tag, `${command.action} failed`, cause)))
       )
       if (command.concurrency === "switch") runner.latest(command.action, run)
@@ -233,6 +249,24 @@ const mountBrowser = (element: HTMLElement, shared: Shared): void => {
 
 // Events -------------------------------------------------------------------------
 
+/** A link or submit button would also navigate or submit; a bound form, key, or drop target would do its usual thing. */
+const cancels = (event: Event, element: Element): boolean => {
+  switch (event.type) {
+    case "submit":
+    case "keydown":
+    case "keyup":
+    case "dragover":
+    case "drop":
+      return true
+    case "click":
+      return (element instanceof HTMLAnchorElement && element.hasAttribute("href")) ||
+        (element instanceof HTMLButtonElement && element.type === "submit") ||
+        (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"))
+    default:
+      return false
+  }
+}
+
 const commandsFor = (event: Event, binding: unknown): ReadonlyArray<On.Command> => {
   if (Array.isArray(binding)) return binding as ReadonlyArray<On.Command>
   // Key bindings map KeyboardEvent.key to commands
@@ -258,8 +292,12 @@ const listener = (event: Event): void => {
         return
       }
       const commands = commandsFor(event, binding)
-      if (commands.length === 0) return
-      if (event.type === "submit" || event instanceof KeyboardEvent) event.preventDefault()
+      // A key binding without this key leaves it to bindings further out
+      if (commands.length === 0) {
+        if (node.matches(selector)) return
+        continue
+      }
+      if (cancels(event, node)) event.preventDefault()
       for (const command of commands) instance.run(command, node)
       return
     }
@@ -301,6 +339,6 @@ export const start = (): void => {
       }
     }
   }).observe(document.documentElement, { childList: true, subtree: true })
-  for (const type of events) document.addEventListener(type, listener)
+  for (const type of On.events) document.addEventListener(type, listener)
   mountWithin(document)
 }

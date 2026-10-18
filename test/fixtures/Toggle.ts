@@ -33,8 +33,12 @@ export const View = LiveComponent.view(Toggle, {
       }),
       Html.element("input", { value: state.label, ...On.input(actions.rename({ label: On.value })) }),
       Html.element("button", { type: "button", ...On.click(actions.add({ by: 5 })), children: String(state.count) }),
-      Html.element("input", {
-        ...On.keydown({ ArrowUp: actions.add({ by: 1 }), ArrowDown: actions.add({ by: -1 }), Enter: undefined })
+      // Escape is bound further out, so the input's own bindings leave it alone
+      Html.element("div", {
+        ...On.keydown({ Escape: actions.toggle() }),
+        children: Html.element("input", {
+          ...On.keydown({ ArrowUp: actions.add({ by: 1 }), ArrowDown: actions.add({ by: -1 }), Enter: undefined })
+        })
       })
     )
 })

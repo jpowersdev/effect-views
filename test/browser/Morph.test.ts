@@ -112,6 +112,18 @@ Vitest.describe.skipIf(Browser.executable === undefined)("morph, in Chromium", (
     Vitest.expect(result).toBe("Parent againChanged by the child")
   })
 
+  Vitest.it("moves keyed components and drops the one removed, without touching what is inside them", async () => {
+    const result = await run<Record<string, unknown>>(`
+      root.innerHTML = ["a", "b", "c"].map((key) => '<app-item data-live="browser" data-key="' + key + '"><p>' + key + '</p></app-item>').join("")
+      const [a, b, c] = root.querySelectorAll("app-item")
+      c.querySelector("p").textContent = "c, changed by itself"
+      morphChildren(root, ["c", "b"].map((key) => '<app-item data-live="browser" data-key="' + key + '"><p>' + key + '</p></app-item>').join(""))
+      const items = [...root.querySelectorAll("app-item")]
+      return { order: items.map((item) => item.dataset.key), same: items[0] === c && items[1] === b, aGone: !a.isConnected, inside: c.textContent }
+    `)
+    Vitest.expect(result).toEqual({ order: ["c", "b"], same: true, aGone: true, inside: "c, changed by itself" })
+  })
+
   Vitest.it("updates an element from markup for itself, or replaces it when the tag differs", async () => {
     const result = await run<Record<string, unknown>>(`
       root.innerHTML = '<app-counter data-live="server" data-n="1"><output>1</output><input value="x"></app-counter>'

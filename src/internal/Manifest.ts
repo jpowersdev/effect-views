@@ -14,9 +14,7 @@ export interface Definition {
   readonly style: string | undefined
 }
 
-// Shared by every copy of this module, such as one from source and one compiled, so Assets.layer sees every component
-const definitions: Map<string, Definition> =
-  ((globalThis as any)[Symbol.for("effect-views/Component/definitions")] ??= new Map())
+const definitions = /*#__PURE__*/ new Map<string, Definition>()
 
 /** @internal Called by Component.make. */
 export const register = (definition: Definition): void => {
@@ -24,6 +22,40 @@ export const register = (definition: Definition): void => {
     throw new TypeError(`A component is already defined as <${definition.tag}>`)
   }
   definitions.set(definition.tag, definition)
+}
+
+/** The directory of effect-views' own modules, source or compiled, whose stack frames definingFile skips. */
+const ownDirectory = new URL("..", import.meta.url).href
+
+/** @internal A stack frame's file, such as "file:///app/Lines.js" from "at View (file:///app/Lines.js:3:9)". */
+export const frameFile = (frame: string): string | undefined => {
+  const body = frame.trim().replace(/^at (?:async )?/, "")
+  // "name (location)" or a bare location; a path may itself contain parentheses
+  const location = body.endsWith(")") && body.includes(" (") ? body.slice(body.indexOf(" (") + 2, -1) : body
+  return /^(.*):\d+:\d+$/.exec(location)?.[1]
+}
+
+/**
+ * @internal The file of the module that called `fn`, directly or through
+ * effect-views, from the call stack. Only a server needs it, for Assets.layer
+ * to bundle that module; elsewhere it is undefined.
+ */
+export const definingFile = (fn: Function): string | undefined => {
+  if (typeof process === "undefined" || typeof Error.captureStackTrace !== "function") return undefined
+  const limit = Error.stackTraceLimit
+  Error.stackTraceLimit = 20
+  const holder: { stack?: string } = {}
+  Error.captureStackTrace(holder, fn)
+  Error.stackTraceLimit = limit
+  const { fileURLToPath, pathToFileURL } = process.getBuiltinModule("node:url")
+  for (const frame of holder.stack?.split("\n").slice(1) ?? []) {
+    const file = frameFile(frame)
+    if (file === undefined || !(file.startsWith("file://") || file.startsWith("/") || /^[A-Za-z]:[\\/]/.test(file))) continue
+    const url = file.startsWith("file://") ? file : pathToFileURL(file).href
+    if (url.startsWith(ownDirectory)) continue
+    return fileURLToPath(url)
+  }
+  return undefined
 }
 
 /** @internal The components defined so far, in the order they were defined. */

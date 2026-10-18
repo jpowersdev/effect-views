@@ -451,13 +451,17 @@ Vitest.describe("Bundler", () => {
     )
     Vitest.expect((await failure(root, ["broken.js"])).message).toBe("broken.js:1:18: Unterminated string literal")
 
+  })
+
+  Vitest.it("bundles modules outside the root, such as a workspace's node_modules above the application", async () => {
+    const root = await fixture({})
     const outside = `${root}-outside.js`
     directories.push(outside)
-    await write(root, { "outside.js": `import "../${Path.basename(outside)}"` })
-    await writeFile(outside, "")
-    Vitest.expect((await failure(root, ["outside.js"])).message).toBe(
-      `Can't bundle ${outside}: it's outside the root directory ${root}; set the root option to include it: ` +
-        `outside.js → ../${Path.basename(outside)}`
+    await write(root, { "main.js": `export { value } from "../${Path.basename(outside)}"` })
+    await writeFile(outside, `export const value = 42`)
+    const result = await bundle(root, ["main.js"])
+    Vitest.expect(result.files.map((file) => file.path.replace(/-[0-9a-f]{12}\.js$/, ""))).toContain(
+      `/assets/${Path.basename(outside).replace(/\.js$/, "").replace(/[^A-Za-z0-9_-]/g, "_")}`
     )
   })
 

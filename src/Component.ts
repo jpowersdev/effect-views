@@ -28,7 +28,8 @@ export interface Config<Props> {
 }
 
 export interface Component<Props> {
-  (props: Props): Html.Html
+  /** Renders the component; a JSX `key` becomes `data-key` on its element. */
+  (props: Props, key?: string | number): Html.Html
   readonly tag: string
 }
 
@@ -67,13 +68,14 @@ export const make = <Props = {}>(tag: string, config: Config<Props>): Component<
     style: config.style === undefined ? undefined : `@scope (${tag}) to (:scope [data-component]) {\n${config.style.value}\n}`
   })
 
-  const component = (props: Props): Html.Html => {
+  const component = (props: Props, key?: string | number): Html.Html => {
     const manifest = Manifest.current()
     if (manifest !== undefined && !manifest.components.has(tag)) {
       throw new Error(`<${tag}> was defined after Assets.layer was built; import its module before building the layer`)
     }
     return Html.element(tag, {
       ...config.attributes?.(props),
+      ...(key === undefined ? {} : { key }),
       "data-component": true,
       children: config.render(props)
     })

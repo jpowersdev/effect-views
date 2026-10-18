@@ -33,7 +33,8 @@ const CounterHandlers = LiveComponent.server(Counter.View, {
     Effect.sync(() => {
       searchesRun++
       return new Counter.CounterState({ ...state, query, searches: state.searches + 1 })
-    })
+    }),
+  note: (state, { note }) => Effect.succeed(new Counter.CounterState({ ...state, notes: [...state.notes, note] }))
 })
 
 const group = HttpApiGroup.make("pages")
@@ -51,7 +52,7 @@ const home = () =>
           <Assets.Head />
         </head>
         <body>
-          <Counter.View state={new Counter.CounterState({ count: 0, query: "", searches: 0 })} />
+          <Counter.View state={new Counter.CounterState({ count: 0, query: "", searches: 0, notes: [] })} />
           <Toggle.View state={new Toggle.ToggleState({ on: false, label: "Lamp", count: 0 })} />
         </body>
       </html>
@@ -117,6 +118,23 @@ Vitest.describe.skipIf(Browser.executable === undefined)("the runtime, in Chromi
     ])
   })
 
+  Vitest.it("runs a server component's actions one at a time, so quick clicks all count", async () => {
+    // Both clicks before either response: each request sends the state the last one returned
+    await page().evaluate(`(() => { const button = document.querySelector("#increment"); button.click(); button.click() })()`)
+    await page().waitFor(`document.querySelector("#count").textContent === "2"`)
+    await page().evaluate(`new Promise((resolve) => setTimeout(resolve, 200))`)
+    Vitest.expect(await text("#count")).toBe("2")
+  })
+
+  Vitest.it("clears a field the server renders empty, and runs a bound submit button instead of submitting", async () => {
+    await page().evaluate(`document.querySelector("#note").focus()`)
+    await page().type("milk")
+    await page().evaluate(`document.querySelector("#add-note").click()`)
+    await page().waitFor(`document.querySelector("#note-list").textContent === "milk"`)
+    Vitest.expect(await page().evaluate(`({ value: document.querySelector("#note").value, path: location.pathname })`))
+      .toEqual({ value: "", path: "/" })
+  })
+
   Vitest.it("debounces a server action, sends the component's inputs, and keeps focus and caret", async () => {
     await page().evaluate(`document.querySelector("#query").focus()`)
     await page().type("lamp")
@@ -145,6 +163,9 @@ Vitest.describe.skipIf(Browser.executable === undefined)("the runtime, in Chromi
     await page().press("ArrowUp")
     await page().press("ArrowUp")
     await page().waitFor(`document.querySelectorAll("test-toggle button")[1].textContent === "2"`)
+    // Escape is bound further out, and the input's bindings leave it to that one
+    await page().press("Escape")
+    await page().waitFor(`document.querySelector("test-toggle button").getAttribute("aria-pressed") === "false"`)
     Vitest.expect(served.requests.filter((request) => request.startsWith("POST")).length).toBe(posts)
     Vitest.expect(await text("test-toggle")).toContain("Heater")
   })

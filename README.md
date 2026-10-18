@@ -607,8 +607,11 @@ Give an action a `description` to summarize it in the OpenAPI document.
 - **Payloads** are decoded like forms, from the inputs in the component and
   any values given where the action is used, such as
   `On.click(actions.add({ by: 5 }))`.
-- The component is updated in place, element by element, so focus, the caret
-  and what is being typed survive the update.
+- The component is updated in place, element by element, so focus and the
+  caret survive the update. Fields show what the response renders, except
+  those typed in while the request was in flight.
+- A component's actions run one at a time, in order, since each sends the
+  state the last one returned, so quick clicks all count.
 - Actions are served at `/live/<tag>/<action>`; do not prefix their group or
   its API. An action answers 400 when its state or payload cannot be decoded.
 - Live components need the effect-views runtime: give `Assets.layer` the API,
@@ -620,6 +623,8 @@ Give an action a `description` to summarize it in the OpenAPI document.
   `LiveComponent.secret(Redacted.make(...))` to `HttpRouter.serve`.
 - An action with `concurrency: "switch"` replaces a request in flight with a
   newer one, aborting it; `debounce` waits for events to stop first.
+- A link or submit button bound with `On.click` runs the action instead of
+  navigating or submitting.
 
 ### In the browser
 
@@ -658,10 +663,14 @@ export const TitleFieldView = LiveComponent.view(TitleField, {
 ```
 
 `On.click`, `On.input`, `On.change`, `On.submit`, `On.focusin` and `On.focusout`
-take commands; `On.keydown` and `On.keyup` take a map of keys, and the keys in
-it no longer do what they usually do, so Enter can choose an option rather
-than submit the form. Give items in lists a `key`, rendered as `data-key`, so
-they keep their elements as items are added and removed.
+take commands, and `On.event` binds the others the runtime handles, listed in
+`On.events`; they bubble, so one listener on the document serves the page.
+`On.keydown` and `On.keyup` take a map of keys, and the keys in it no longer
+do what they usually do, so Enter can choose an option rather than submit the
+form; keys left out go to bindings further out. Give items in lists a `key`,
+rendered as `data-key`, so they keep their elements as items are added and
+removed; on a component, such as a live component in a list, it goes on the
+component's element, so each keeps its own state.
 
 The handlers run in the browser. They change the state rather than return
 it, because actions overlap there, such as a key press while a check waits

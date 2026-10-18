@@ -44,6 +44,7 @@ const keys = {
   Enter: { code: "Enter", keyCode: 13, text: "\r" },
   ArrowUp: { code: "ArrowUp", keyCode: 38 },
   ArrowDown: { code: "ArrowDown", keyCode: 40 },
+  Escape: { code: "Escape", keyCode: 27 },
   Backspace: { code: "Backspace", keyCode: 8 }
 } as const
 

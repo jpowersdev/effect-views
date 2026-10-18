@@ -5,6 +5,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import type * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
@@ -195,8 +196,8 @@ export type Actions<C> = C extends LiveComponent<any, any, infer Defined, infer 
   : never
 
 export interface View<C extends Any> {
-  /** Renders the component with a state. */
-  (props: { readonly state: StateOf<C> }): Html.Html
+  /** Renders the component with a state; a JSX `key` becomes `data-key` on its element. */
+  (props: { readonly state: StateOf<C> }, key?: string | number): Html.Html
   readonly component: C
   /** Renders the component, for the action handlers. */
   readonly render: (state: StateOf<C>) => Html.Html
@@ -214,13 +215,27 @@ export interface ViewOptions<C extends Any> {
 /** Where a component that runs in the browser loads its code, without Assets.layer: see endpoints. */
 const moduleEndpointPath = (tag: string) => `${prefix}/${tag}/module.js`
 
-/** Fails clearly when the page cannot run the component, rather than rendering controls that do nothing. */
+/**
+ * Fails clearly when a page could not run the component, rather than
+ * rendering controls that do nothing: while handling a request, the runtime
+ * must come from Assets.layer. Rendering outside a request, such as in a
+ * test, is left alone.
+ */
 const requireRuntime = (tag: string): void => {
-  const manifest = Manifest.current()
-  if (manifest !== undefined && !manifest.runtime) {
+  const fiber = Fiber.getCurrent()
+  if (fiber === undefined) return
+  const manifest = Context.getOrUndefined(fiber.context, Manifest.Assets)
+  if (manifest?.runtime === true) return
+  if (manifest !== undefined) {
     throw new Error(
       `<${tag}> needs the effect-views runtime; give Assets.layer the API that has the component's endpoints: ` +
         `Assets.layer({ api })`
+    )
+  }
+  if (Context.getOrUndefined(fiber.context, HttpServerRequest.HttpServerRequest) !== undefined) {
+    throw new Error(
+      `<${tag}> needs the effect-views runtime; provide Assets.layer({ api }) to HttpRouter.serve, ` +
+        `and render <Assets.Head /> in the page`
     )
   }
 }
@@ -271,12 +286,15 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
       },
       render: contents
     })
-    const render = (state: StateOf<C>) => {
+    const render = (state: StateOf<C>, key?: string | number) => {
       // Fetch the component's modules while the page loads, rather than after the runtime finds the element
       const preloads = Manifest.current()?.live.get(component.tag)?.preloads ?? []
-      return Html.fragment(preloads.map((href) => Html.element("link", { rel: "modulepreload", href })), Element(state))
+      return Html.fragment(preloads.map((href) => Html.element("link", { rel: "modulepreload", href })), Element(state, key))
     }
-    return Object.assign((props: { readonly state: StateOf<C> }) => render(props.state), { component, render, contents })
+    return Object.assign(
+      (props: { readonly state: StateOf<C> }, key?: string | number) => render(props.state, key),
+      { component, render: (state: StateOf<C>) => render(state), contents }
+    )
   }
 
   const commandOf = (action: LiveAction.Any) => (values?: Record<string, unknown>): On.Command => {
@@ -315,8 +333,8 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
     render: contents
   })
 
-  const render = (props: { readonly state: StateOf<C> }) => Element(props.state)
-  return Object.assign(render, { component, render: Element, contents })
+  const render = (props: { readonly state: StateOf<C> }, key?: string | number) => Element(props.state, key)
+  return Object.assign(render, { component, render: (state: StateOf<C>) => Element(state), contents })
 }
 
 // Handlers ----------------------------------------------------------------------
@@ -410,27 +428,10 @@ export interface BrowserDefinition {
   readonly file: string | undefined
 }
 
-// Shared by every copy of this module in the page, such as one from source and one compiled, so that the
-// runtime finds handlers registered by either
-const browserDefinitions: Map<string, BrowserDefinition> =
-  ((globalThis as any)[Symbol.for("effect-views/LiveComponent/browserDefinitions")] ??= new Map())
+const browserDefinitions = /*#__PURE__*/ new Map<string, BrowserDefinition>()
 
 /** @internal The browser handlers defined for a tag, if their module has been loaded. */
 export const browserDefinition = (tag: string): BrowserDefinition | undefined => browserDefinitions.get(tag)
-
-/** The file of the module that called `fn`, from the call stack; only Node's is needed. */
-const callerFile = (fn: Function): string | undefined => {
-  if (typeof Error.captureStackTrace !== "function") return undefined
-  const limit = Error.stackTraceLimit
-  Error.stackTraceLimit = 1
-  const holder: { stack?: string } = {}
-  Error.captureStackTrace(holder, fn)
-  Error.stackTraceLimit = limit
-  const frame = holder.stack?.split("\n")[1]?.trim() ?? ""
-  const location = /\(([^()]+):\d+:\d+\)$/.exec(frame)?.[1] ?? /^at ([^()]+):\d+:\d+$/.exec(frame)?.[1]
-  if (location === undefined) return undefined
-  return location.startsWith("file://") ? decodeURIComponent(new URL(location).pathname) : location
-}
 
 export interface BrowserOptions<R> {
   /** Services for the handlers, built once per page in the browser and shared by its components. */
@@ -469,7 +470,7 @@ export const browser: {
     view,
     implementation: implementation as BrowserDefinition["implementation"],
     layer: options?.layer as BrowserDefinition["layer"],
-    file: callerFile(browser)
+    file: Manifest.definingFile(browser)
   })
   return Layer.succeed(HandlersKey(tag))({ tag, view, implementation: {}, context: Context.empty() })
 }

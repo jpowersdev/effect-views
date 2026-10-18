@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Etag from "effect/http/Etag"
 import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
@@ -15,6 +16,7 @@ import * as Vitest from "vitest"
 
 import * as Assets from "../src/Assets.js"
 import * as Html from "../src/Html.js"
+import * as Manifest from "../src/internal/Manifest.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 import * as LiveAction from "../src/LiveAction.js"
 import * as LiveComponent from "../src/LiveComponent.js"
@@ -95,14 +97,28 @@ Vitest.describe("LiveComponent in the browser", () => {
       { _tag: "Action", action: "rename", payload: { label: { "~effect-views/On/Placeholder": "value" } } }
     ])
     // Keys left undefined keep their usual behaviour
-    Vitest.expect(Object.keys(JSON.parse(attribute(body, "data-on-keydown")!))).toEqual(["ArrowUp", "ArrowDown"])
+    const keyBindings = [...body.matchAll(/data-on-keydown="([^"]+)"/g)].map((match) =>
+      Object.keys(JSON.parse(match[1]!.replaceAll("&quot;", "\"")))
+    )
+    Vitest.expect(keyBindings).toEqual([["Escape"], ["ArrowUp", "ArrowDown"]])
     // No signed state: it never goes back to the server
     Vitest.expect(body).not.toContain(LiveComponent.stateField)
+  })
+
+  Vitest.it("puts a JSX key on its element, so a list of components keeps each one's state", () => {
+    Vitest.expect(Html.render(<Toggle.View key="lamp" state={initial} />)).toMatch(/^<test-toggle [^>]*data-key="lamp"/)
   })
 
   Vitest.it("has one endpoint, for its code", () => {
     const endpoints = LiveComponent.endpoints(Toggle.Toggle)
     Vitest.expect(endpoints.map((endpoint) => [endpoint.method, endpoint.path])).toEqual([["GET", "/live/test-toggle/module.js"]])
+  })
+
+  Vitest.it("reads the module's file from stack frames, including paths with parentheses", () => {
+    Vitest.expect(Manifest.frameFile("    at file:///home/u/proj%20(copy)/Lines.js:3:9")).toBe("file:///home/u/proj%20(copy)/Lines.js")
+    Vitest.expect(Manifest.frameFile("    at Object.<anonymous> (/home/u/proj (copy)/Lines.js:3:9)")).toBe("/home/u/proj (copy)/Lines.js")
+    Vitest.expect(Manifest.frameFile("    at async View (C:\\app\\Lines.js:1:2)")).toBe("C:\\app\\Lines.js")
+    Vitest.expect(Manifest.frameFile("    at new Promise (<anonymous>)")).toBeUndefined()
   })
 
   Vitest.it("records the module that defines its browser handlers", () => {
@@ -181,6 +197,12 @@ Vitest.describe("LiveComponent on the server", () => {
     Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
       Effect.provideService(Assets.Assets, withoutApi)
     ))).toThrow(/needs the effect-views runtime; give Assets.layer the API/)
+    // While handling a request with no Assets.layer at all
+    Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
+      Effect.provideService(HttpServerRequest.HttpServerRequest, HttpServerRequest.fromWeb(new Request("http://localhost/")))
+    ))).toThrow(/provide Assets.layer\(\{ api \}\) to HttpRouter.serve/)
+    // Outside a request, such as in a test, it renders
+    Vitest.expect(Html.render(<CounterView state={{}} />)).toContain(`data-live="server"`)
   })
 })
 
@@ -189,7 +211,8 @@ Vitest.describe("On", () => {
     const command: On.Command = { _tag: "Action", action: "save", payload: {} }
     Vitest.expect(On.click(command)).toEqual({ "data-on-click": `[{"_tag":"Action","action":"save","payload":{}}]` })
     Vitest.expect(On.event("pointerdown", command, command)["data-on-pointerdown"]).toBe(JSON.stringify([command, command]))
-    Vitest.expect(() => On.event("on-click", command)).toThrow(/lowercase/)
+    // Only events the runtime listens for, which bubble
+    Vitest.expect(() => On.event("focus" as On.EventName, command)).toThrow(/does not handle "focus" events/)
     Vitest.expect(On.isPlaceholder(On.value)).toBe(true)
     Vitest.expect(On.isPlaceholder({ value: 1 })).toBe(false)
   })

@@ -14,15 +14,37 @@ const isComponent = (node: Node): boolean =>
 /** What each form field showed when it was last rendered, to tell a change of state from what was typed since. */
 const rendered = new WeakMap<Element, string>()
 
+/** During morphElement for a server's response: what each field showed when the request was sent. */
+let sent: ReadonlyMap<Element, string> | undefined
+
 /**
- * Shows `next` unless the field has only changed since its last render
- * because of the person using it: when the state still says what it said, what
- * they typed is newer, so a render that arrives while they type keeps it.
+ * Shows `next`, the field's value as rendered, or keeps what it shows now.
+ *
+ * - A server's response decides, unless the field changed after the request
+ *   was sent: what was typed in the meantime is newer.
+ * - Otherwise, as when the browser renders a component again, a field changes
+ *   only when its rendered value did: when the state still says what it said,
+ *   what was typed is newer, so a render that arrives while typing keeps it.
  */
-const syncField = (element: Element, last: string, next: string, apply: (value: string) => void): void => {
+const syncField = (element: Element, last: string, next: string, current: string, apply: (value: string) => void): void => {
   const previous = rendered.get(element) ?? last
   rendered.set(element, next)
+  const whenSent = sent?.get(element)
+  if (whenSent !== undefined) {
+    if (current === whenSent && current !== next) apply(next)
+    return
+  }
   if (previous !== next) apply(next)
+}
+
+/** What a form field shows, as one string, to compare with how it was rendered. */
+export const fieldValue = (field: Element): string => {
+  if (field instanceof HTMLInputElement) {
+    return field.type === "checkbox" || field.type === "radio" ? String(field.checked) : field.value
+  }
+  if (field instanceof HTMLTextAreaElement) return field.value
+  if (field instanceof HTMLSelectElement) return selectedValues(field.options, (option) => option.selected)
+  return ""
 }
 
 const selectedValues = (options: Iterable<HTMLOptionElement>, selected: (option: HTMLOptionElement) => boolean) =>
@@ -32,24 +54,24 @@ const selectedValues = (options: Iterable<HTMLOptionElement>, selected: (option:
 const syncFormState = (from: Element, to: Element): void => {
   if (from instanceof HTMLInputElement) {
     if (from.type === "checkbox" || from.type === "radio") {
-      syncField(from, String(from.hasAttribute("checked")), String(to.hasAttribute("checked")), (value) => {
+      syncField(from, String(from.hasAttribute("checked")), String(to.hasAttribute("checked")), fieldValue(from), (value) => {
         from.checked = value === "true"
       })
     } else if (from.type !== "file") {
-      syncField(from, from.getAttribute("value") ?? "", to.getAttribute("value") ?? "", (value) => {
+      syncField(from, from.getAttribute("value") ?? "", to.getAttribute("value") ?? "", from.value, (value) => {
         if (from.value !== value) from.value = value
       })
     }
   } else if (from instanceof HTMLTextAreaElement) {
-    syncField(from, from.defaultValue, to.textContent ?? "", (value) => {
+    syncField(from, from.defaultValue, to.textContent ?? "", from.value, (value) => {
       if (from.value !== value) from.value = value
     })
   }
 }
 
-const syncSelect = (from: HTMLSelectElement, to: HTMLSelectElement, last: string): void => {
+const syncSelect = (from: HTMLSelectElement, to: HTMLSelectElement, last: string, current: string): void => {
   const next = selectedValues(to.options, (option) => option.hasAttribute("selected"))
-  syncField(from, last, next, (value) => {
+  syncField(from, last, next, current, (value) => {
     const values = new Set(value.split("\n"))
     for (const option of Array.from(from.options)) option.selected = values.has(option.value)
   })
@@ -96,8 +118,9 @@ const morphNode = (from: ChildNode, to: ChildNode): void => {
   syncAttributes(element, next)
   if (element instanceof HTMLSelectElement) {
     const last = selectedValues(element.options, (option) => option.defaultSelected)
+    const current = fieldValue(element)
     morphChildNodes(element, next)
-    syncSelect(element, next as HTMLSelectElement, last)
+    syncSelect(element, next as HTMLSelectElement, last, current)
   } else if (!(element instanceof HTMLTextAreaElement)) {
     morphChildNodes(element, next)
   }
@@ -148,15 +171,24 @@ export const morphChildren = (target: Element, html: string): void => {
 
 /**
  * Makes the element match markup for the element itself, such as a component
- * rendered again by the server: its attributes and its contents.
+ * rendered again by the server: its attributes and its contents. `whenSent`
+ * holds what its fields showed when the request was sent; see syncField.
  */
-export const morphElement = (target: Element, html: string): void => {
+export const morphElement = (target: Element, html: string, whenSent?: ReadonlyMap<Element, string>): void => {
   const next = parse(html).firstElementChild
   if (next === null) throw new Error(`Expected an element, received: ${html.slice(0, 80)}`)
   if (next.localName !== target.localName) {
     target.replaceWith(next)
     return
   }
-  syncAttributes(target, next)
-  morphChildNodes(target, next)
+  // The server renders the component without the key its parent gave it
+  const key = target.getAttribute("data-key")
+  if (key !== null && !next.hasAttribute("data-key")) next.setAttribute("data-key", key)
+  sent = whenSent
+  try {
+    syncAttributes(target, next)
+    morphChildNodes(target, next)
+  } finally {
+    sent = undefined
+  }
 }

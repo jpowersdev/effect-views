@@ -27,7 +27,11 @@ export interface Options {
   readonly entries: ReadonlyArray<string>
   /** Where the files are served, such as "/assets"; every output path starts with it. */
   readonly prefix: `/${string}`
-  /** Files outside this directory are refused. Defaults to process.cwd(). */
+  /**
+   * The directory module names in hashes and messages are relative to.
+   * Defaults to process.cwd(). Modules outside it are bundled too, such as a
+   * workspace's node_modules above the application, named with "../".
+   */
   readonly root?: string
   /** Whether to drop what the entries don't use. Defaults to true; false serves every module whole, for debugging. */
   readonly shake?: boolean
@@ -181,11 +185,6 @@ const edit = (source: string, edits: ReadonlyArray<Edit>): string => {
 
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex")
 
-const isInside = (directory: string, path: string): boolean => {
-  const relative = Path.relative(directory, path)
-  return relative !== ".." && !relative.startsWith(`..${Path.sep}`) && !Path.isAbsolute(relative)
-}
-
 const realOf = (path: string, message: string) =>
   Effect.tryPromise({
     try: () => realpath(path),
@@ -219,11 +218,6 @@ export const bundle = (options: Options): Effect.Effect<Bundle, BundlerError> =>
     const load = (path: string): Effect.Effect<Module, Problem> =>
       Effect.gen(function* () {
         const name = nameOf(path)
-        if (!isInside(root, path)) {
-          return yield* new Problem({
-            message: `Can't bundle ${path}: it's outside the root directory ${root}; set the root option to include it`
-          })
-        }
         const module = yield* read(path, name)
         const resolve = (specifier: string): Effect.Effect<string, Problem> =>
           resolver.resolve(specifier, path).pipe(
