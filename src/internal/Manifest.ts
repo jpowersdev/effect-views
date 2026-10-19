@@ -65,7 +65,12 @@ export interface File {
   readonly path: string
   readonly contentType: string
   readonly body: Uint8Array
+  /** The body compressed when the layer was built, by content coding, when that is smaller. */
+  readonly encoded?: Partial<Record<Encoding, Uint8Array>>
 }
+
+/** The content codings Assets.layer compresses files with, in the order it prefers them. */
+export type Encoding = "br" | "gzip"
 
 /** Where a live component that runs in the browser loads its code from. */
 export interface LiveModule {

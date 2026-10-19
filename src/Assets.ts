@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as HttpRouter from "effect/http/HttpRouter"
+import type * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
@@ -15,16 +16,26 @@ import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
+import * as Zlib from "node:zlib"
 
 import * as Csp from "./Csp.js"
 import * as Html from "./Html.js"
 import * as Bundler from "./internal/Bundler.js"
-import { Assets, current, type File, type LiveModule, type Manifest, registered } from "./internal/Manifest.js"
+import {
+  Assets,
+  current,
+  type Encoding,
+  type File,
+  type LiveModule,
+  type Manifest,
+  registered
+} from "./internal/Manifest.js"
 import * as LiveComponent from "./LiveComponent.js"
 
 // Defined apart, without Node, for the modules that also run in the browser
 export { Assets, current, register } from "./internal/Manifest.js"
-export type { Definition, File, LiveModule, Manifest } from "./internal/Manifest.js"
+export type { Definition, Encoding, File, LiveModule, Manifest } from "./internal/Manifest.js"
 
 export class AssetsError extends Data.TaggedError("AssetsError")<{
   readonly message: string
@@ -65,6 +76,13 @@ export interface Options {
    * ```
    */
   readonly api?: HttpApi.HttpApi<string, any>
+  /**
+   * Whether to compress the files when the layer is built, with brotli at its
+   * highest quality and with gzip, to send each request the smallest it
+   * accepts. Defaults to true; pass false when a proxy or CDN in front of the
+   * server compresses them.
+   */
+  readonly compress?: boolean
 }
 
 const contentTypes: Readonly<Record<string, string>> = {
@@ -80,6 +98,62 @@ const contentTypes: Readonly<Record<string, string>> = {
   ico: "image/x-icon",
   woff2: "font/woff2",
   txt: "text/plain; charset=utf-8"
+}
+
+const brotli = promisify(Zlib.brotliCompress)
+const gzip = promisify(Zlib.gzip)
+
+/** Text compresses well; images, fonts and archives are compressed already. */
+const isCompressible = (contentType: string): boolean =>
+  /^text\/|javascript|json|svg|xml/.test(contentType)
+
+/**
+ * A file with its body compressed, keeping each coding only when it is
+ * smaller. The files never change once built, so they are compressed once,
+ * as much as each coding allows, rather than for each request.
+ */
+const compressed = (file: File): Effect.Effect<File, AssetsError> =>
+  !isCompressible(file.contentType) || file.body.length < 256
+    ? Effect.succeed(file)
+    : Effect.tryPromise({
+      try: async () => {
+        const [br, gz] = await Promise.all([
+          brotli(file.body, {
+            params: {
+              [Zlib.constants.BROTLI_PARAM_QUALITY]: Zlib.constants.BROTLI_MAX_QUALITY,
+              [Zlib.constants.BROTLI_PARAM_SIZE_HINT]: file.body.length
+            }
+          }),
+          gzip(file.body, { level: Zlib.constants.Z_BEST_COMPRESSION })
+        ])
+        const encoded: Partial<Record<Encoding, Uint8Array>> = {}
+        if (br.length < file.body.length) encoded.br = new Uint8Array(br)
+        if (gz.length < file.body.length) encoded.gzip = new Uint8Array(gz)
+        return { ...file, encoded }
+      },
+      catch: (cause) => new AssetsError({ message: `Could not compress ${file.path}`, cause })
+    })
+
+const preference: ReadonlyArray<Encoding> = ["br", "gzip"]
+
+/**
+ * The coding to send, from a request's Accept-Encoding: the first one the
+ * server prefers that the request accepts with a weight above zero, directly
+ * or through `*`. Undefined means the body as it is.
+ */
+export const negotiate = (acceptEncoding: string | undefined, available: ReadonlyArray<Encoding>): Encoding | undefined => {
+  if (acceptEncoding === undefined) return undefined
+  const weights = new Map<string, number>()
+  for (const part of acceptEncoding.split(",")) {
+    const [name = "", ...parameters] = part.split(";").map((piece) => piece.trim().toLowerCase())
+    const weight = parameters.find((parameter) => parameter.startsWith("q="))
+    if (name !== "") weights.set(name, weight === undefined ? 1 : Number(weight.slice(2)))
+  }
+  return preference.find((encoding) => {
+    if (!available.includes(encoding)) return false
+    const weight = weights.get(encoding) ?? weights.get("*")
+    return weight !== undefined && weight > 0
+  })
 }
 
 const readFileAt = (name: string, path: string | URL) =>
@@ -244,6 +318,11 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       }
     }
 
+    if (options?.compress !== false) {
+      const all = yield* Effect.forEach(files.values(), compressed, { concurrency: 8 })
+      for (const file of all) files.set(file.path, file)
+    }
+
     return {
       prefix,
       head: headTags({ stylesheets, scripts, modules, modulePreloads }, undefined),
@@ -303,13 +382,22 @@ export const groupLayer = <ApiId extends string, Groups extends HttpApiGroup.Con
             `add Assets.groupAt("${manifest.prefix}") to the API instead`
         )
       }
-      return handlers.handle("file", ({ params }: { readonly params: { readonly file: string } }) => {
+      return handlers.handle("file", ({ params, request }: {
+        readonly params: { readonly file: string }
+        readonly request: HttpServerRequest.HttpServerRequest
+      }) => {
         const file = manifest.files.get(`${manifest.prefix}/${params.file}`)
         if (file === undefined) return Effect.fail(new HttpApiError.NotFound({}))
-        return Effect.succeed(HttpServerResponse.uint8Array(file.body, {
+        const encoded = file.encoded ?? {}
+        const encoding = negotiate(request.headers["accept-encoding"], Object.keys(encoded) as Array<Encoding>)
+        return Effect.succeed(HttpServerResponse.uint8Array(encoding === undefined ? file.body : encoded[encoding]!, {
           contentType: file.contentType,
-          // File names change with their contents, so they never need to be fetched again
-          headers: { "cache-control": "public, max-age=31536000, immutable" }
+          headers: {
+            // File names change with their contents, so they never need to be fetched again
+            "cache-control": "public, max-age=31536000, immutable",
+            ...(file.encoded === undefined ? {} : { vary: "Accept-Encoding" }),
+            ...(encoding === undefined ? {} : { "content-encoding": encoding })
+          }
         }))
       })
     })) as any
