@@ -37,13 +37,8 @@ Vitest.describe("ErrorPage", () => {
       Vitest.expect(output).toContain("Rendering an error page")
       Vitest.expect(output).toContain("kaboom")
 
-      const fragment = await handler(new Request("http://localhost/boom", { headers: { "HX-Request": "true" } }))
+      const fragment = await handler(new Request("http://localhost/boom", { headers: { "effect-views-request": "true" } }))
       Vitest.expect(await fragment.text()).toBe(`<p data-fragment data-cause>Error 500</p>`)
-
-      const boosted = await handler(new Request("http://localhost/boom", {
-        headers: { "HX-Request": "true", "HX-Boosted": "true" }
-      }))
-      Vitest.expect(await boosted.text()).toBe(`<p data-cause>Error 500</p>`)
     } finally {
       log.mockRestore()
       error.mockRestore()

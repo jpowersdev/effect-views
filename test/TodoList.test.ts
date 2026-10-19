@@ -28,14 +28,20 @@ const makeApp = (filename = ":memory:") => HttpRouter.toWebHandler(
   { disableLogger: true }
 )
 
+/** The create form: posted to /todos, and by the runtime into the app. */
+const submitsToApp = /<form\b[^>]*\bdata-on-submit="[^"]*&quot;target&quot;:&quot;#todo-app&quot;[^"]*"[^>]*\baction="\/todos"/
+
 Vitest.describe("todo list example", () => {
   Vitest.it("streams the list to the page when the JSON API, as the CLI uses it, adds a todo", async () => {
     const { dispose, handler } = makeApp()
 
     try {
       const page = await (await handler(new Request("http://localhost/"))).text()
-      Vitest.expect(page).toContain(`<div hx-ext="sse" sse-connect="/todos/changes" sse-swap="todos"><ul>`)
-      Vitest.expect(page).toMatch(/<script src="\/assets\/htmx-ext-sse-[0-9a-f]{12}\.js" defer><\/script>/)
+      // The list subscribes to the stream, which the runtime opens
+      Vitest.expect(page).toContain(
+        `<div data-subscribe="{&quot;url&quot;:&quot;/todos/changes&quot;,&quot;events&quot;:[&quot;todos&quot;],&quot;swap&quot;:&quot;inner&quot;}"><ul>`
+      )
+      Vitest.expect(page).toMatch(/<script type="module" src="\/assets\/start-[0-9a-f]{12}\.js"><\/script>/)
 
       const events = await handler(new Request("http://localhost/todos/changes"))
       Vitest.expect(events.headers.get("content-type")).toBe("text/event-stream")
@@ -74,35 +80,35 @@ Vitest.describe("todo list example", () => {
       const page = await handler(new Request("http://localhost/"))
       Vitest.expect(page.status).toBe(200)
       Vitest.expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
-      Vitest.expect(page.headers.get("vary")).toBe("HX-Request, HX-Boosted")
+      Vitest.expect(page.headers.get("vary")).toBe("effect-views-request")
       const pageBody = await page.text()
       Vitest.expect(pageBody).toMatch(/^<!doctype html>/)
-      // htmx posts the form and swaps the fragment; it does not boost, which would ask for a page.
-      Vitest.expect(pageBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
+      // The runtime submits the form and puts the fragment into the app; without JavaScript it posts as usual.
+      Vitest.expect(pageBody).toMatch(submitsToApp)
 
       const fragment = await handler(new Request("http://localhost/", {
-        headers: { "HX-Request": "true" }
+        headers: { "effect-views-request": "true" }
       }))
       Vitest.expect(fragment.status).toBe(200)
-      Vitest.expect(fragment.headers.get("vary")).toBe("HX-Request, HX-Boosted")
+      Vitest.expect(fragment.headers.get("vary")).toBe("effect-views-request")
       const fragmentBody = await fragment.text()
       Vitest.expect(fragmentBody).toMatch(/^<main id="todo-app">/)
       Vitest.expect(fragmentBody).not.toContain("<!doctype html>")
-      Vitest.expect(fragmentBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
+      Vitest.expect(fragmentBody).toMatch(submitsToApp)
 
       const title = "<script>alert(1)</script>"
       const created = await handler(new Request("http://localhost/todos", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ title })
       }))
       Vitest.expect(created.status).toBe(200)
-      Vitest.expect(created.headers.get("vary")).toBe("HX-Request, HX-Boosted")
+      Vitest.expect(created.headers.get("vary")).toBe("effect-views-request")
       const createdBody = await created.text()
       Vitest.expect(createdBody).toMatch(/^<main id="todo-app">/)
       Vitest.expect(createdBody).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
       Vitest.expect(createdBody).not.toContain(title)
-      Vitest.expect(createdBody).toMatch(/<form\b[^>]*\bhx-post="\/todos"/)
+      Vitest.expect(createdBody).toMatch(submitsToApp)
 
       const nativeSubmission = await handler(new Request("http://localhost/todos", {
         method: "POST",
@@ -151,7 +157,7 @@ Vitest.describe("todo list example", () => {
 
       const blank = await handler(new Request("http://localhost/todos", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ title: "   " })
       }))
       Vitest.expect(blank.status).toBe(422)
@@ -159,7 +165,7 @@ Vitest.describe("todo list example", () => {
 
       const long = await handler(new Request("http://localhost/todos", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ title: "x".repeat(81) })
       }))
       Vitest.expect(long.status).toBe(422)
@@ -167,7 +173,7 @@ Vitest.describe("todo list example", () => {
 
       const duplicate = await handler(new Request("http://localhost/todos", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ title: "Try Effect views" })
       }))
       Vitest.expect(duplicate.status).toBe(422)
@@ -228,7 +234,7 @@ Vitest.describe("todo list example", () => {
 
   Vitest.it("shows a form error when the list is full", async () => {
     const { dispose, handler } = makeApp()
-    const post = (title: string, headers: Record<string, string> = { "HX-Request": "true" }) =>
+    const post = (title: string, headers: Record<string, string> = { "effect-views-request": "true" }) =>
       handler(new Request("http://localhost/todos", { method: "POST", headers, body: new URLSearchParams({ title }) }))
 
     try {

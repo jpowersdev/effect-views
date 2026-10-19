@@ -44,8 +44,8 @@ export const render = (directives: Directives): string =>
 /**
  * Gives each response a fresh nonce and sends the policy with it, unless the
  * response sets its own. While a request is handled, `nonce()` returns it, so
- * pages can mark the inline scripts and styles they trust, and `Htmx.Config`
- * and `Assets.Head` use it for htmx's.
+ * pages can mark the inline scripts and styles they trust, and `Assets.Head`
+ * marks the effect-views runtime's scripts with it.
  *
  * ```ts
  * const app = Layer.mergeAll(routes, Csp.layer({

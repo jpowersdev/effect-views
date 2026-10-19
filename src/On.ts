@@ -10,6 +10,8 @@
  * ```
  */
 
+import type { Swap } from "./internal/Protocol.js"
+
 const PlaceholderTypeId = "~effect-views/On/Placeholder" as const
 
 /**
@@ -35,10 +37,24 @@ export const placeholderKind = (placeholder: Placeholder<unknown>): "value" | "c
   placeholder[PlaceholderTypeId]
 
 /**
- * Something for the runtime to do when an event happens: running one of the
- * component's actions, as made by the `actions` a view's render receives.
+ * Something for the runtime to do when an event happens: running one of a
+ * live component's actions, as made by the `actions` its view's render
+ * receives, or submitting a form, as Form.Root and Form.target bind it.
  */
-export type Command = BrowserAction | ServerAction
+export type Command = BrowserAction | ServerAction | Request
+
+/**
+ * Submits the form the binding is on with the runtime, rather than loading a
+ * page: to its action, by its method, with its fields and the button that
+ * submitted it, and puts the response into `target` as `swap` says. A form
+ * already waiting for a response ignores further submits.
+ */
+export interface Request {
+  readonly _tag: "Request"
+  /** A selector for the element the response goes into. */
+  readonly target: string
+  readonly swap: Swap
+}
 
 /** An action of a component that runs in the browser, run by its handler there. */
 export interface BrowserAction {

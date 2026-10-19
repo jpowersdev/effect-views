@@ -34,42 +34,48 @@ Vitest.describe("View", () => {
     Vitest.expect(Html.render(<Stats.Link>Stats</Stats.Link>)).toBe(`<a href="/stats">Stats</a>`)
   })
 
-  Vitest.it("renders placeholders that htmx replaces with the view", () => {
+  Vitest.it("renders placeholders that the runtime replaces with the view", () => {
     Vitest.expect(Html.render(
       <Activity.Lazy params={{ orderId: 42 }} query={{ limit: 5 }} class="panel" aria-busy="true">
         <p>Loading activity…</p>
       </Activity.Lazy>
     )).toBe(
-      `<div class="panel" aria-busy="true" hx-get="/orders/42/activity?limit=5" hx-trigger="load" hx-swap="outerHTML">` +
+      `<div class="panel" aria-busy="true" data-load="{&quot;url&quot;:&quot;/orders/42/activity?limit=5&quot;,&quot;when&quot;:&quot;load&quot;,&quot;swap&quot;:&quot;outer&quot;}">` +
         `<p>Loading activity…</p>` +
       `</div>`
     )
-    Vitest.expect(Html.render(<Stats.Lazy as="section" trigger="revealed" swap="innerHTML" />)).toBe(
-      `<section hx-get="/stats" hx-trigger="revealed" hx-swap="innerHTML"></section>`
+    Vitest.expect(Html.render(<Stats.Lazy as="section" trigger="visible" swap="inner" />)).toBe(
+      `<section data-load="{&quot;url&quot;:&quot;/stats&quot;,&quot;when&quot;:&quot;visible&quot;,&quot;swap&quot;:&quot;inner&quot;}"></section>`
+    )
+    Vitest.expect(Html.render(<Stats.Lazy trigger={{ every: "5 seconds" }} swap="inner" />)).toBe(
+      `<div data-load="{&quot;url&quot;:&quot;/stats&quot;,&quot;when&quot;:{&quot;every&quot;:5000},&quot;swap&quot;:&quot;inner&quot;}"></div>`
     )
   })
 
-  Vitest.it("renders elements that htmx updates with a view's events", () => {
+  Vitest.it("renders elements that the runtime updates with a view's events", () => {
     Vitest.expect(Html.render(
-      <Orders.Subscribe params={{ orderId: 42 }} event="status, items" as="section" class="live">
+      <Orders.Subscribe params={{ orderId: 42 }} event={["status", "items"]} as="section" class="live">
         <p>Waiting…</p>
       </Orders.Subscribe>
     )).toBe(
-      `<section class="live" hx-ext="sse" sse-connect="/orders/42/events" sse-swap="status, items">` +
+      `<section class="live" data-subscribe="{&quot;url&quot;:&quot;/orders/42/events&quot;,&quot;events&quot;:[&quot;status&quot;,&quot;items&quot;],&quot;swap&quot;:&quot;inner&quot;}">` +
         `<p>Waiting…</p>` +
       `</section>`
+    )
+    Vitest.expect(Html.render(<Orders.Subscribe params={{ orderId: 42 }} event="items" swap="append" />)).toBe(
+      `<div data-subscribe="{&quot;url&quot;:&quot;/orders/42/events&quot;,&quot;events&quot;:[&quot;items&quot;],&quot;swap&quot;:&quot;append&quot;}"></div>`
     )
   })
 
   Vitest.it("renders one connection for elements that take different events", () => {
     Vitest.expect(Html.render(
       <Orders.Connect params={{ orderId: 42 }} as="main" class="order">
-        <p sse-swap="status">Waiting…</p>
-        <ul sse-swap="items"></ul>
+        <p {...Orders.event("status")}>Waiting…</p>
+        <ul {...Orders.event("items")}></ul>
       </Orders.Connect>
     )).toBe(
-      `<main class="order" hx-ext="sse" sse-connect="/orders/42/events">` +
-        `<p sse-swap="status">Waiting…</p><ul sse-swap="items"></ul>` +
+      `<main class="order" data-subscribe="{&quot;url&quot;:&quot;/orders/42/events&quot;,&quot;swap&quot;:&quot;inner&quot;}">` +
+        `<p data-event="status">Waiting…</p><ul data-event="items"></ul>` +
       `</main>`
     )
   })
@@ -83,16 +89,18 @@ Vitest.describe("View", () => {
       <Activity.Lazy params={{ orderId: "42" }} query={{}} />,
       // @ts-expect-error href comes from the endpoint
       <Stats.Link href="/elsewhere" />,
-      // @ts-expect-error hx-get comes from the endpoint
-      <Stats.Lazy hx-get="/elsewhere" />,
+      // @ts-expect-error the URL comes from the endpoint
+      <Stats.Lazy data-load="{}" />,
+      // @ts-expect-error the runtime loads a placeholder once, when visible, or every so often
+      <Stats.Lazy trigger="revealed" />,
       // @ts-expect-error params are required by the endpoint
       Activity.url(),
-      // @ts-expect-error sse-connect comes from the endpoint
-      <Orders.Subscribe params={{ orderId: 42 }} event="status" sse-connect="/elsewhere" />,
+      // @ts-expect-error the URL comes from the endpoint
+      <Orders.Subscribe params={{ orderId: 42 }} event="status" data-subscribe="{}" />,
       // @ts-expect-error params are required by the endpoint
       <Orders.Connect />,
       // @ts-expect-error the elements inside take the events
-      <Orders.Connect params={{ orderId: 42 }} sse-swap="status" />
+      <Orders.Connect params={{ orderId: 42 }} data-event="status" />
     ]
 
     Vitest.expect(invalid).toBeTypeOf("function")

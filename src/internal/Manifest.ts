@@ -83,12 +83,11 @@ export interface LiveModule {
 export interface Manifest {
   /** Where the files are served, such as "/assets". */
   readonly prefix: `/${string}`
-  /** Tags for the page head: the stylesheet and the scripts. */
+  /** Tags for the page head: the stylesheet and the effect-views runtime. */
   readonly head: Html.Html
-  /** The stylesheets and the scripts the head loads, in order. */
+  /** The stylesheets the head loads, in order. */
   readonly stylesheets: ReadonlyArray<string>
-  readonly scripts: ReadonlyArray<string>
-  /** Module scripts the head loads, such as the effect-views runtime, and the modules they import. */
+  /** Module scripts the head loads, the effect-views runtime, and the modules they import. */
   readonly modules: ReadonlyArray<string>
   readonly modulePreloads: ReadonlyArray<string>
   /** Where the application's own files are served, by name; see Options.files and url. */
@@ -97,8 +96,6 @@ export interface Manifest {
   readonly files: ReadonlyMap<string, File>
   /** Components whose styles the files include. */
   readonly components: ReadonlySet<string>
-  /** Whether the head loads the effect-views runtime, which live components need. */
-  readonly runtime: boolean
   /** Live components that run in the browser, by tag. */
   readonly live: ReadonlyMap<string, LiveModule>
 }

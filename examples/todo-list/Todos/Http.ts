@@ -4,8 +4,8 @@ import * as Stream from "effect/Stream"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 
 import * as ViewHtml from "effect-views/Html"
-import * as Htmx from "effect-views/Htmx"
 import * as LiveComponent from "effect-views/LiveComponent"
+import * as Page from "effect-views/Page"
 
 import * as RootApi from "../RootApi.js"
 import * as Todos from "../Todos.js"
@@ -66,7 +66,7 @@ export const TodosViewsLayer = HttpApiBuilder.group(
             })
           )
           // When a page is expected, redirect so that reloading it does not submit again.
-          if (!Htmx.wantsFragment(request)) return ViewHtml.seeOther("/")
+          if (!Page.wantsFragment(request)) return ViewHtml.seeOther("/")
           return Html.app(yield* todos.list)
         }).pipe(
           Effect.catchTag("FormInvalid", (invalid) =>

@@ -1,7 +1,7 @@
 # effect-views
 
 An unfinished prototype for server-rendered HTML and schema-bound forms with
-Effect and htmx.
+Effect, and a small Effect runtime in the browser.
 
 ## What's interesting
 
@@ -14,8 +14,9 @@ Effect and htmx.
   schema, then `Form.derive` turns that same endpoint into typed form controls.
 - Field names and compatible control types are checked by TypeScript while the
   application keeps control of its markup and layout.
-- htmx helpers make it easy to return fragments, set response headers, and vary
-  responses on `HX-Request`.
+- Forms and placeholders can put the server's HTML into the page without
+  loading a new one, and `Page` returns fragments for them, full pages for
+  everything else, and response headers that say where fragments go.
 - Invalid submissions come back to the handler as `Submission.Invalid`, and
   `form.with(invalid)` renders the form again with the user's input and errors.
 - `View.derive` turns a GET view endpoint into typed links, and placeholders that
@@ -25,10 +26,11 @@ Effect and htmx.
 - `Component.make` keeps a component's markup and scoped CSS in one `.tsx`
   file. Live components add actions that run on the server as HttpApi
   endpoints, with typed state and payloads, and no JavaScript of your own in
-  the browser. `Assets.layer` serves the styles and htmx without a build step.
+  the browser. `Assets.layer` bundles the runtime, and serves it with the
+  styles, without a build step.
 
 The examples serve full pages to ordinary browser requests and HTML fragments
-to htmx requests. The same forms work with or without JavaScript.
+to the runtime. The same forms work with or without JavaScript.
 
 ## Try it locally
 
@@ -83,7 +85,7 @@ export const createTodo = HttpFormEndpoint.make("create", "/todos", {
 const NewTodo = Form.derive({ id: "new-todo", endpoint: createTodo })
 
 export const view = (
-  <NewTodo.Root hx-post={NewTodo.action} hx-target="#todo-app" hx-swap="outerHTML">
+  <NewTodo.Root target="#todo-app">
     <NewTodo.Label name="title">What needs doing?</NewTodo.Label>
     <NewTodo.Input name="title" required />
     <button type="submit">Add todo</button>
@@ -97,8 +99,12 @@ reference. Layout, copy, classes, and browser validation attributes remain
 ordinary JSX. The endpoint's schema also decodes the submitted payload on the
 server.
 
-With htmx, `hx-post` submits the form and swaps the response into
-`#todo-app`; without JavaScript, the browser submits it as usual.
+With `target`, the effect-views runtime submits the form and puts the response
+in place of `#todo-app`, updating it element by element, so focus and what is
+being typed survive. `swap="inner"` replaces what the target contains instead,
+and `swap="append"` adds the response after it. Without JavaScript, the
+browser submits the form as usual. `Form.target(selector, swap)` binds the
+same to a form of your own: `<form {...Form.target("#todo-app")}>`.
 
 ## Validation errors
 
@@ -124,7 +130,7 @@ error, encoding the decoded value back into the form's values:
           }))
       })
     )
-    return Htmx.wantsFragment(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
+    return Page.wantsFragment(request) ? Html.app(yield* todos.list) : Html.seeOther("/")
   }).pipe(
     Effect.catchTag("FormInvalid", (invalid) =>
       Effect.map(todos.list, (items) =>
@@ -141,7 +147,7 @@ textareas, checkboxes, and selects given `options` show the submitted values
 ```tsx
 const Form = NewTodo.with(invalid)
 
-<Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
+<Form.Root target="#todo-app">
   <Form.Error role="alert" class="error" />
   <Form.Label name="title">What needs doing?</Form.Label>
   <Form.Input name="title" required />
@@ -150,14 +156,15 @@ const Form = NewTodo.with(invalid)
 </Form.Root>
 ```
 
-htmx does not swap 4xx responses by default. Put `<Htmx.Config />` in the page
-head to swap 422 responses as well.
+The runtime puts a 422 response, the form returned with its errors, into the
+target like a successful one; other errors go elsewhere, as
+[Error pages](#error-pages) describes.
 
 A successful POST that expects a page answers with `Html.seeOther`, a 303
 redirect, so that reloading the page does not submit the form again.
-`Htmx.seeOther(request, location)` covers htmx too: a 303 for ordinary and
-boosted requests, which htmx follows, and `HX-Redirect` for other htmx
-requests, so the browser loads the whole page.
+`Page.seeOther(request, location)` covers the runtime too: a 303 for ordinary
+requests, and a 204 with an `effect-views-location` header for the runtime's,
+so the browser loads the whole page.
 
 ### Writing messages
 
@@ -238,13 +245,13 @@ form's own. `Form.invalid` tells whether there are any messages at all.
 
 Short forms often need no summary. `NewTodo.with(invalid, { autofocusError: true })`
 gives the first invalid control `autofocus`, so the browser focuses it after a
-full page load and htmx after a swap, and a screen reader reads its label and
-error.
+full page load and the runtime after putting the form in the page, and a
+screen reader reads its label and error.
 
 `<Form.Summary />` lists every message at the top of the form: the form's own,
 then each field's in schema order, linking to its control. Long forms benefit
 most. It has `role="alert"` and `autofocus`, so the browser moves focus to it
-after a full page load and htmx after a swap, without extra JavaScript. It
+after a full page load and the runtime after putting the form in the page. It
 includes the form's own messages, so use it instead of a nameless `Error`. The
 [sign-up example](examples/signup/App.tsx) puts it at the top of a long form.
 
@@ -262,8 +269,8 @@ const rename = HttpFormEndpoint.make("rename", "/todos/:id/rename", {
 
 const Rename = Form.derive({ id: `rename-${todo.id}`, endpoint: rename, params: { id: todo.id } })
 
-<Rename.Root hx-post={Rename.action}>…</Rename.Root>
-// <form hx-post="/todos/7/rename" id="rename-7" method="post" action="/todos/7/rename">
+<Rename.Root>…</Rename.Root>
+// <form id="rename-7" method="post" action="/todos/7/rename">
 ```
 
 A form's `id` prefixes its controls' ids, so give each one on a page its own,
@@ -320,7 +327,7 @@ const TodoApp = ({ todos }: { readonly todos: ReadonlyArray<Todo.Todo> }): Html.
   <main id="todo-app">
     <h1>Todo list</h1>
     <TodoList todos={todos} />
-    <NewTodo.Root hx-post={NewTodo.action} hx-target="#todo-app" hx-swap="outerHTML">
+    <NewTodo.Root target="#todo-app">
       <NewTodo.Label name="title">What needs doing?</NewTodo.Label>
       <NewTodo.Input name="title" required />
       <button type="submit">Add todo</button>
@@ -346,13 +353,14 @@ export const jsx = (
 Function components are called directly; intrinsic elements go through the HTML
 renderer and become a branded `Html` value ready for an Effect response.
 
-## Full pages and htmx fragments
+## Full pages and fragments
 
 The same handlers serve a complete page to the browser and just the view to
-htmx. `Htmx.layout` takes the page component once:
+the effect-views runtime, when it submits a form or loads a placeholder.
+`Page.layout` takes the page component once:
 
 ```tsx
-const page = Htmx.layout(Page)
+const page = Page.layout(Document)
 ```
 
 ```tsx
@@ -364,15 +372,23 @@ const page = Htmx.layout(Page)
 )
 ```
 
-`page(request, view)` returns the view on its own for htmx requests, and inside
-`Page` for ordinary requests and for boosted links and forms, which swap the
-whole body. `Htmx.wantsFragment(request)` makes the same decision for your own
-code. `page(request, view, { status: 404 })` does the same with a status.
-Use `hx-post` or `hx-get`, not `hx-boost`, for elements that swap a fragment.
+`page(request, view)` returns the view on its own for the runtime's requests,
+which send `effect-views-request: true`, and inside `Document` for everything
+else. `Page.wantsFragment(request)` makes the same decision for your own code.
+`page(request, view, { status: 404 })` does the same with a status.
 
-`Htmx.varyLayer` adds `Vary: HX-Request, HX-Boosted` to HTML responses, and
-helpers such as `Htmx.retarget`, `Htmx.reswap`, `Htmx.redirect`, and
-`Htmx.trigger` set htmx response headers.
+A fragment shows what the server rendered, as loading the page would: live
+components in it show the server's HTML too, and those that run in the
+browser start again with the state it gave them. Fields keep what was typed
+while the request was in flight. Scripts in a fragment do not run.
+
+`Page.varyLayer` adds `Vary: effect-views-request` to HTML responses, so caches
+keep pages and fragments apart. A response can tell the runtime what to do
+with it instead of what the request asked: `Page.retarget` puts it into
+another element, `Page.swap` puts it in another way, or nowhere with
+`"none"`, `Page.redirect` loads another page, and `Page.trigger` dispatches an
+event from the element that made the request once the response is in the
+page.
 
 ## Error pages
 
@@ -396,12 +412,13 @@ leaves requests that do not accept HTML, such as JSON API calls, alone:
 
 ```tsx
 const errorPages = ErrorPage.layer(({ fragment, status }) =>
-  fragment ? <p>Something went wrong ({status})</p> : <Page><h1>Error {status}</h1></Page>
+  fragment ? <p>Something went wrong ({status})</p> : <Document><h1>Error {status}</h1></Document>
 )
 ```
 
-htmx does not swap error responses by default. `<Htmx.Config errorTarget="#errors" />`
-swaps them into an element of the page instead of its usual target.
+The runtime does not put error responses where the request asked.
+`<Assets.Head errorTarget="#errors" />` puts them into an element of the page
+instead, replacing what it contains; without it, they are logged.
 
 ## Cross-site request forgery
 
@@ -412,7 +429,7 @@ Requests with neither header, such as those from curl, are allowed, since no
 browser can be tricked into sending them.
 
 ```ts
-const app = Layer.mergeAll(routes, Htmx.varyLayer, Csrf.layer())
+const app = Layer.mergeAll(routes, Page.varyLayer, Csrf.layer())
 ```
 
 Pass `trustedOrigins` for other sites that may submit forms to the application,
@@ -434,9 +451,10 @@ const app = Layer.mergeAll(routes, Csp.layer({
 ```
 
 While a request is handled, `Csp.nonce()` returns its nonce, for the inline
-scripts and styles a page trusts: `<script nonce={Csp.nonce()}>`. `Htmx.Config`
-hands it to htmx for the styles and scripts htmx adds, and `Assets.Head` puts
-it on its scripts. A response that sets its own policy keeps it.
+scripts and styles a page trusts: `<script nonce={Csp.nonce()}>`.
+`Assets.Head` puts it on its scripts. The runtime adds no inline scripts or
+styles, so the strict policy needs nothing more. A response that sets its own
+policy keeps it.
 
 ## Async views
 
@@ -478,14 +496,17 @@ const Activity = View.derive({ endpoint: orderActivity })
 <Activity.Lazy params={{ orderId: 42 }}>
   <p>Loading activity…</p>
 </Activity.Lazy>
-// <div hx-get="/orders/42/activity" hx-trigger="load" hx-swap="outerHTML">…</div>
+// <div data-load='{"url":"/orders/42/activity","when":"load","swap":"outer"}'>…</div>
 
 Activity.url({ params: { orderId: 42 } }) // "/orders/42/activity"
 ```
 
-`Lazy` renders a placeholder that htmx replaces with the view. `trigger` accepts
-any htmx trigger, such as `"revealed"` or `"every 30s"`, and `as` chooses the
-element. It needs JavaScript, so keep essential content in the page, or put an
+`Lazy` renders a placeholder that the runtime replaces with the view. Its
+`trigger` is `"load"`, the default, `"visible"` to wait until it scrolls into
+view, or `{ every: "30 seconds" }` to load it again and again; give that
+`swap="inner"`, which keeps the placeholder and replaces what it contains, so
+there is a placeholder to load into next time. `as` chooses the element. It
+needs JavaScript, so keep essential content in the page, or put an
 `Activity.Link` in a `<noscript>`.
 
 ## Components
@@ -614,9 +635,9 @@ Give an action a `description` to summarize it in the OpenAPI document.
   state the last one returned, so quick clicks all count.
 - Actions are served at `/live/<tag>/<action>`; do not prefix their group or
   its API. An action answers 400 when its state or payload cannot be decoded.
-- Live components need the effect-views runtime: give `Assets.layer` the API,
-  `Assets.layer({ api })`, and it bundles the runtime when the API has live
-  components. Rendering one without it is an error.
+- Live components need the effect-views runtime, which `Assets.layer`
+  bundles and `<Assets.Head />` loads. Rendering one while handling a request
+  without `Assets.layer` is an error.
 - State is signed with a key chosen at startup, so nothing needs to be
   provided. Pages rendered before a restart, or by another server, stop
   accepting actions; to share a key, provide
@@ -728,8 +749,8 @@ Assets.layer({ api: Api })
 
 ### Assets
 
-`Assets.layer` builds the files when the server starts: htmx from the installed
-`htmx.org`, one stylesheet for every component, and the application's own
+`Assets.layer` builds the files when the server starts: the effect-views
+runtime, one stylesheet for every component, and the application's own
 files. They're served by an HttpApi group, with names that change with their
 contents, cached for a year. Add `Assets.group` to the application's API and
 provide `Assets.groupLayer` to its layer:
@@ -747,7 +768,7 @@ HttpRouter.serve(Layer.mergeAll(ApiRoutes, ErrorPages)).pipe(
 )
 ```
 
-Put `<Assets.Head />` in the page head for htmx and the components' styles, and
+Put `<Assets.Head />` in the page head for the runtime and the components' styles, and
 refer to the application's files with `Assets.url`:
 `<link rel="stylesheet" href={Assets.url("app.css")} />`. Provide
 `Assets.layer` to `HttpRouter.serve`, rather than only to the API's layer, so
@@ -755,11 +776,9 @@ that error pages rendered by middleware can render the head too; with
 `HttpRouter.toWebHandler`, use `Layer.provideMerge`.
 
 Pass `api` to bundle the live components in the API that run in the
-browser, with the effect-views runtime; see [In the browser](#in-the-browser).
-Pass `htmx: { url }` to load htmx from elsewhere, `htmx: false` to leave it
-out, `extensions: ["sse"]` to serve htmx extensions from their `htmx-ext-<name>`
-packages, or `prefix` to serve the files from somewhere other than `/assets`,
-with `Assets.groupAt(prefix)` in the API instead of `Assets.group`. Components
+browser; see [In the browser](#in-the-browser). Pass `prefix` to serve the
+files from somewhere other than `/assets`, with `Assets.groupAt(prefix)` in
+the API instead of `Assets.group`. Components
 must be defined before the layer is built; rendering one defined later is an
 error.
 
@@ -777,7 +796,7 @@ files alone since they are compressed already.
 `HttpViewEndpoint.events` declares a GET endpoint that streams HTML fragments
 as server-sent events. Its handler returns a `Stream` of `HtmlEvent`, each an
 event name and its HTML, and `View.derive` gives it a `Subscribe` element whose
-contents htmx replaces with each event of that name:
+contents the runtime replaces with each event of that name:
 
 ```tsx
 export const changes = HttpViewEndpoint.events("changes", "/todos/changes")
@@ -787,7 +806,7 @@ const Changes = View.derive({ endpoint: changes })
 <Changes.Subscribe event="todos">
   <TodoList todos={todos} />
 </Changes.Subscribe>
-// <div hx-ext="sse" sse-connect="/todos/changes" sse-swap="todos">…</div>
+// <div data-subscribe='{"url":"/todos/changes","events":["todos"],"swap":"inner"}'>…</div>
 ```
 
 ```ts
@@ -797,25 +816,27 @@ const Changes = View.derive({ endpoint: changes })
   )))
 ```
 
+`event` can also list several events, and `swap="append"` adds each event's
+HTML after what the element contains, as a log would.
+
 When different parts of a page take different events, open one connection
-with `Connect`, and name each part's events in `sse-swap`:
+with `Connect`, and give each part its event with `Changes.event(name)`:
 
 ```tsx
 <Changes.Connect as="main">
-  <section sse-swap="todos"><TodoList todos={todos} /></section>
-  <p sse-swap="count">{todos.length} todos</p>
+  <section {...Changes.event("todos")}><TodoList todos={todos} /></section>
+  <p {...Changes.event("count")}>{todos.length} todos</p>
 </Changes.Connect>
-// <main hx-ext="sse" sse-connect="/todos/changes">…</main>
+// <main data-subscribe='{"url":"/todos/changes","swap":"inner"}'>…</main>
 ```
 
 The endpoint is an ordinary HttpApi endpoint, with the API's middleware, and
 the OpenAPI document describes it as `text/event-stream`. The stream ends when
-the browser closes the connection, such as when htmx swaps the element out.
-`Subscribe` needs htmx's sse extension: install `htmx-ext-sse` and pass
-`extensions: ["sse"]` to `Assets.layer`.
+the browser closes the connection, when the element leaves the page.
 
-A stream that starts with the current state, such as `SubscriptionRef.changes`,
-keeps pages in step when the browser reconnects after losing the connection.
+The browser reconnects when it loses the connection. A stream that starts with
+the current state, such as `SubscriptionRef.changes`, keeps pages in step when
+it does.
 
 ## Checks
 

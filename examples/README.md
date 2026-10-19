@@ -17,10 +17,10 @@ State is shared across browser sessions.
 pnpm example:todo
 ```
 
-Open <http://127.0.0.1:3000> and add a todo. With htmx, served by
-`Assets.layer`, the form updates the todo section without navigating. Disable JavaScript and reload
-to try the same form: it redirects back to the list, so reloading does not add
-the todo twice.
+Open <http://127.0.0.1:3000> and add a todo. The effect-views runtime, which
+`Assets.layer` bundles, submits the form and updates the todo section without
+navigating. Disable JavaScript and reload to try the same form: it redirects
+back to the list, so reloading does not add the todo twice.
 
 Submit an empty or overlong title, or one already on the list, to see the form
 returned with the title you typed and a message written in
@@ -54,7 +54,8 @@ pnpm -s example:todo:cli add "Water the plants"
 The page in your browser shows the new todo as soon as it is added, without
 reloading. The list subscribes to a [stream of server-sent
 events](todo-list/Todos/Views.ts): the server sends the list when the page
-connects, and again each time any client adds a todo, and htmx swaps it in.
+connects, and again each time any client adds a todo, and the runtime puts it
+in the page.
 Open the page in two windows and add a todo in one to see it arrive in the
 other.
 
@@ -104,15 +105,15 @@ With the server running, open a second terminal:
 curl -i http://127.0.0.1:3000/
 
 # The same route, returning only the app fragment
-curl -i -H 'HX-Request: true' http://127.0.0.1:3000/
+curl -i -H 'effect-views-request: true' http://127.0.0.1:3000/
 
 # Submit the URL-encoded form and receive an updated fragment
-curl -i -H 'HX-Request: true' \
+curl -i -H 'effect-views-request: true' \
   --data-urlencode 'title=Explore typed forms' \
   http://127.0.0.1:3000/todos
 
 # A duplicate title: 422 with the form and its error
-curl -i -H 'HX-Request: true' \
+curl -i -H 'effect-views-request: true' \
   --data-urlencode 'title=Explore typed forms' \
   http://127.0.0.1:3000/todos
 
@@ -120,8 +121,8 @@ curl -i -H 'HX-Request: true' \
 curl -i http://127.0.0.1:3000/api/todos
 ```
 
-Successful HTML responses include `Vary: HX-Request` so caches can distinguish
-pages from fragments.
+Successful HTML responses include `Vary: effect-views-request` so caches can
+distinguish pages from fragments.
 
 ## Sign-up: a long form with an error summary
 
@@ -140,8 +141,8 @@ and takes focus. Then try:
 - The email address ada@example.com, which is taken: the form comes back with
   everything you entered except the passwords.
 
-A valid submission creates the account and goes to its page, with htmx or
-without JavaScript. Accounts are kept in memory until the server restarts.
+A valid submission creates the account and goes to its page, with JavaScript
+or without. Accounts are kept in memory until the server restarts.
 
 ## Orders: pages and fragments
 
@@ -150,7 +151,7 @@ pnpm example:orders
 ```
 
 Open <http://127.0.0.1:3000>, choose order 42, and click **Cancel order**. With
-htmx, only the order article changes; without JavaScript, the browser loads a
+JavaScript, only the order article changes; without it, the browser loads a
 new page. The activity panel loads separately, about 400 ms after the page,
 through `View.derive`; without JavaScript it becomes a link. Return to the
 index to see the updated status. Restart the server to reset the order.

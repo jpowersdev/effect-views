@@ -1,11 +1,13 @@
 /**
- * The effect-views runtime for live components. Assets.layer bundles it, with
- * the modules of the components that run in the browser, and the page head
- * loads it. It finds each component's element and runs its actions when the
- * events bound with On happen: on the server, by posting to the action's
- * endpoint and updating the component with the HTML returned; in the browser,
- * by loading the component's module, running the action's handler, and
- * rendering the component again when its state changes.
+ * The effect-views runtime. Assets.layer bundles it, with the modules of the
+ * components that run in the browser, and the page head loads it. It finds
+ * each live component's element and runs its actions when the events bound
+ * with On happen: on the server, by posting to the action's endpoint and
+ * updating the component with the HTML returned; in the browser, by loading
+ * the component's module, running the action's handler, and rendering the
+ * component again when its state changes. It also does what the page asks
+ * for beyond components: forms bound with a Request, placeholders that load,
+ * and subscriptions to server-sent events; see Protocol.
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -20,12 +22,15 @@ import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
 
 import * as Html from "../Html.js"
+import * as Protocol from "../internal/Protocol.js"
 import * as LiveComponent from "../LiveComponent.js"
 import * as On from "../On.js"
+import * as Load from "./load.js"
 import { fieldValue, morphChildren, morphElement } from "./morph.js"
+import { headers, submit } from "./request.js"
+import * as Subscription from "./subscription.js"
 
 const selector = "[data-live]"
-
 
 interface Instance {
   /** Runs a command from a binding on `element`, inside the component. */
@@ -114,7 +119,7 @@ const post = (host: Element, command: On.ServerAction): Effect.Effect<void, unkn
     }
     // Interrupting the fiber, such as for a newer run of a "switch" action, aborts the request
     const response = yield* Effect.tryPromise((signal) =>
-      fetch(command.url, { method: "POST", body, headers: { accept: "text/html" }, signal })
+      fetch(command.url, { method: "POST", body, headers, signal })
     )
     const html = yield* Effect.tryPromise(() => response.text())
     if (!response.ok) return yield* Effect.fail(new Error(`${response.status} ${response.statusText}: ${html}`))
@@ -166,6 +171,7 @@ const mountBrowser = (element: HTMLElement, shared: Shared): void => {
   const waiting: Array<readonly [string, Record<string, unknown>]> = []
   let dispatch: ((action: string, values: Record<string, unknown>) => void) | undefined
   const scope = Effect.runSync(Scope.make())
+  let closed = false
   instances.set(element, {
     run: (command, bound) => {
       if (command._tag !== "Action") return report(tag, `runs in the browser, but received ${command._tag}`)
@@ -175,7 +181,10 @@ const mountBrowser = (element: HTMLElement, shared: Shared): void => {
       else dispatch(command.action, values)
     },
     // Interrupts the component's actions and stops rendering it
-    close: closeScope(scope)
+    close: () => {
+      closed = true
+      closeScope(scope)()
+    }
   })
 
   const start = Effect.gen(function* () {
@@ -207,7 +216,8 @@ const mountBrowser = (element: HTMLElement, shared: Shared): void => {
           scheduled = true
           requestAnimationFrame(() => {
             scheduled = false
-            if (latest === shown) return
+            // A render waiting for the frame when the component stopped, such as to start again, is dropped
+            if (closed || latest === shown) return
             shown = latest
             morphChildren(element, Html.render(view.contents(latest)))
           })
@@ -284,7 +294,6 @@ const listener = (event: Event): void => {
     if (node.hasAttribute(attribute)) {
       const host = node.closest(selector)
       const instance = host === null ? undefined : instances.get(host)
-      if (instance === undefined) return
       let binding: unknown
       try {
         binding = JSON.parse(node.getAttribute(attribute) ?? "[]")
@@ -297,39 +306,113 @@ const listener = (event: Event): void => {
         if (node.matches(selector)) return
         continue
       }
+      // Requests are the page's, so they run outside components too; actions need the component they belong to
+      const runs = instance === undefined ? commands.filter((command) => command._tag === "Request") : commands
+      if (runs.length === 0) return
       if (cancels(event, node)) event.preventDefault()
-      for (const command of commands) instance.run(command, node)
+      for (const command of runs) {
+        if (command._tag === "Request") submit(command, node, event)
+        else instance?.run(command, node)
+      }
       return
     }
     if (node.matches(selector)) return
   }
 }
 
-/** Starts the runtime: components in the page now, and any added later, such as by htmx. */
+// Starting and stopping ----------------------------------------------------------
+
+/** Starts what an attribute asks for on an element, given the attribute's value, and returns how to stop it. */
+type Starter = (element: HTMLElement, value: string) => () => void
+
+/** What runs on each element, by the attribute that asked for it, with the value it started with. */
+const running = new WeakMap<Element, Map<string, { readonly value: string; readonly stop: () => void }>>()
+
+/** Starts what an attribute holding JSON asks for, such as a Load. */
+const fromJson = <A>(start: (element: HTMLElement, value: A) => () => void): Starter => (element, value) =>
+  start(element, JSON.parse(value) as A)
+
+/**
+ * Starts the runtime: what the page asks for now, and in elements added
+ * later, such as by a swap or a live component rendering again. Each stops
+ * when its element leaves the page.
+ */
 export const start = (): void => {
   const shared: Shared = {
     memoMap: Effect.runSync(Layer.makeMemoMap),
     scope: Effect.runSync(Scope.make())
   }
-  const mount = (element: HTMLElement): void => {
-    if (instances.has(element)) return
-    if (element.getAttribute("data-live") === "browser") mountBrowser(element, shared)
-    else mountServer(element)
+  const starters = new Map<string, Starter>([
+    ["data-live", (element, runs) => {
+      if (runs === "browser") mountBrowser(element, shared)
+      else mountServer(element)
+      return () => {
+        instances.get(element)?.close()
+        instances.delete(element)
+      }
+    }],
+    [Protocol.loadAttribute, fromJson(Load.start)],
+    [Protocol.subscribeAttribute, fromJson(Subscription.start)]
+  ])
+  const startable = Array.from(starters.keys(), (attribute) => `[${attribute}]`).join(", ")
+
+  /** Starts what the attribute asks for, unless it already runs; stops what ran with a value it no longer has. */
+  const update = (element: HTMLElement, attribute: string, starter: Starter): void => {
+    const value = element.getAttribute(attribute)
+    const started = running.get(element)
+    const current = started?.get(attribute)
+    if (current?.value === value) return
+    current?.stop()
+    started?.delete(attribute)
+    if (value === null) return
+    let stop = () => {}
+    try {
+      stop = starter(element, value)
+    } catch (cause) {
+      report(element.localName, `could not start its ${attribute}`, cause)
+    }
+    if (started === undefined) running.set(element, new Map([[attribute, { value, stop }]]))
+    else started.set(attribute, { value, stop })
   }
+  const mount = (element: HTMLElement): void => {
+    for (const [attribute, starter] of starters) if (element.hasAttribute(attribute)) update(element, attribute, starter)
+  }
+  const within = (root: ParentNode): ReadonlyArray<Element> => [
+    ...(root instanceof Element && root.matches(startable) ? [root] : []),
+    ...Array.from(root.querySelectorAll(startable))
+  ]
   const mountWithin = (root: ParentNode): void => {
-    if (root instanceof HTMLElement && root.matches(selector)) mount(root)
-    for (const element of Array.from(root.querySelectorAll<HTMLElement>(selector))) mount(element)
+    for (const element of within(root)) if (element instanceof HTMLElement) mount(element)
   }
   const unmountDetached = (root: Element): void => {
-    const hosts = [...(root.matches(selector) ? [root] : []), ...Array.from(root.querySelectorAll(selector))]
-    for (const host of hosts) {
-      if (host.isConnected) continue
-      instances.get(host)?.close()
-      instances.delete(host)
+    for (const element of within(root)) {
+      if (element.isConnected) continue
+      for (const { stop } of running.get(element)?.values() ?? []) stop()
+      running.delete(element)
     }
+  }
+  /** Stops what the attribute started and starts it again, from what the element holds now. */
+  const restart = (element: HTMLElement, attribute: string, starter: Starter): void => {
+    running.get(element)?.get(attribute)?.stop()
+    running.get(element)?.delete(attribute)
+    update(element, attribute, starter)
   }
   new MutationObserver((records) => {
     for (const record of records) {
+      if (record.type === "attributes") {
+        const element = record.target
+        if (!(element instanceof HTMLElement) || !element.isConnected) continue
+        const attribute = record.attributeName ?? ""
+        // The server rendered a browser component again, for the page: it starts again with that state
+        if (attribute === "data-live-state") {
+          if (element.getAttribute("data-live") === "browser") restart(element, "data-live", starters.get("data-live")!)
+          continue
+        }
+        // A swap that keeps the element but changes what it loads or subscribes to, such as the next page's placeholder
+        const starter = starters.get(attribute)
+        if (starter !== undefined) update(element, attribute, starter)
+        continue
+      }
       for (const node of Array.from(record.addedNodes)) {
         if (node instanceof Element) mountWithin(node)
       }
@@ -338,7 +421,11 @@ export const start = (): void => {
         if (node instanceof Element) queueMicrotask(() => unmountDetached(node))
       }
     }
-  }).observe(document.documentElement, { childList: true, subtree: true })
+  }).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributeFilter: [Protocol.loadAttribute, Protocol.subscribeAttribute, "data-live-state"]
+  })
   for (const type of On.events) document.addEventListener(type, listener)
   mountWithin(document)
 }

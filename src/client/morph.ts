@@ -2,7 +2,8 @@
  * Updates an element's contents to match new markup, changing only what
  * differs, so focus, the caret, scroll positions and elements other code holds
  * survive. Elements are matched by `data-key` (JSX `key`), then by position
- * and tag. Components inside are left to render themselves.
+ * and tag. When a component renders itself, components inside are left to
+ * render themselves; see Components.
  */
 
 const keyOf = (node: Node): string | null =>
@@ -16,6 +17,18 @@ const rendered = new WeakMap<Element, string>()
 
 /** During morphElement for a server's response: what each field showed when the request was sent. */
 let sent: ReadonlyMap<Element, string> | undefined
+
+/**
+ * What happens to live components inside what is updated. "keep" leaves them
+ * as they are, for a component rendering itself, which renders those inside
+ * it with the state they started with. "render" updates them too, for HTML
+ * the server renders for the page, which knows their state, as loading the
+ * page would show it; setting `data-live-state` on a browser component starts
+ * it again with that state, even when it has not changed.
+ */
+export type Components = "keep" | "render"
+
+let components: Components = "keep"
 
 /**
  * Shows `next`, the field's value as rendered, or keeps what it shows now.
@@ -88,6 +101,13 @@ const syncAttributes = (from: Element, to: Element): void => {
   }
 }
 
+/** Sets the state of a browser component whose element was updated with "render", which starts it again; see Components. */
+const restartBrowserComponent = (element: Element): void => {
+  if (components === "render" && element.getAttribute("data-live") === "browser") {
+    element.setAttribute("data-live-state", element.getAttribute("data-live-state") ?? "null")
+  }
+}
+
 const move = (parent: ParentNode, node: ChildNode, before: ChildNode | null): void => {
   // moveBefore keeps the moved element's state, such as focus or a playing video, where browsers support it
   const moveBefore = (parent as { moveBefore?: (node: Node, before: Node | null) => void }).moveBefore
@@ -113,9 +133,10 @@ const morphNode = (from: ChildNode, to: ChildNode): void => {
   }
   const element = from as Element
   const next = to as Element
-  if (isComponent(element)) return
+  if (isComponent(element) && components === "keep") return
   syncFormState(element, next)
   syncAttributes(element, next)
+  restartBrowserComponent(element)
   if (element instanceof HTMLSelectElement) {
     const last = selectedValues(element.options, (option) => option.defaultSelected)
     const current = fieldValue(element)
@@ -164,31 +185,58 @@ const parse = (html: string): DocumentFragment => {
   return template.content
 }
 
-/** Makes the element's contents match the markup. */
-export const morphChildren = (target: Element, html: string): void => {
-  morphChildNodes(target, parse(html))
+/**
+ * Makes the element's contents match the markup. For a server's response,
+ * `whenSent` holds what the fields showed when the request was sent; see
+ * syncField.
+ */
+export const morphChildren = (
+  target: Element,
+  html: string,
+  whenSent?: ReadonlyMap<Element, string>,
+  inside: Components = "keep"
+): void => {
+  sent = whenSent
+  components = inside
+  try {
+    morphChildNodes(target, parse(html))
+  } finally {
+    sent = undefined
+    components = "keep"
+  }
 }
 
 /**
  * Makes the element match markup for the element itself, such as a component
  * rendered again by the server: its attributes and its contents. `whenSent`
  * holds what its fields showed when the request was sent; see syncField.
+ * Returns the element now in its place: itself, or the markup's element when
+ * the tag differs and it is replaced.
  */
-export const morphElement = (target: Element, html: string, whenSent?: ReadonlyMap<Element, string>): void => {
+export const morphElement = (
+  target: Element,
+  html: string,
+  whenSent?: ReadonlyMap<Element, string>,
+  inside: Components = "keep"
+): Element => {
   const next = parse(html).firstElementChild
   if (next === null) throw new Error(`Expected an element, received: ${html.slice(0, 80)}`)
   if (next.localName !== target.localName) {
     target.replaceWith(next)
-    return
+    return next
   }
   // The server renders the component without the key its parent gave it
   const key = target.getAttribute("data-key")
   if (key !== null && !next.hasAttribute("data-key")) next.setAttribute("data-key", key)
   sent = whenSent
+  components = inside
   try {
     syncAttributes(target, next)
+    restartBrowserComponent(target)
     morphChildNodes(target, next)
   } finally {
     sent = undefined
+    components = "keep"
   }
+  return target
 }

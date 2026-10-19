@@ -15,7 +15,6 @@ import * as Vitest from "vitest"
 import * as Assets from "../src/Assets.js"
 import * as Csp from "../src/Csp.js"
 import * as Html from "../src/Html.js"
-import * as Htmx from "../src/Htmx.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
 
 const api = HttpApi.make("test")
@@ -24,13 +23,12 @@ const api = HttpApi.make("test")
 
 const pages = HttpApiBuilder.group(api, "pages", (handlers) =>
   handlers
-    // A page with an inline script it trusts, htmx's configuration, and the assets
+    // A page with an inline script it trusts, and the assets
     .handle("page", () =>
       Effect.sync(() => (
         <html>
           <head>
-            <Htmx.Config />
-            <Assets.Head />
+            <Assets.Head errorTarget="#errors" />
           </head>
           <body>
             <script nonce={Csp.nonce()}>{Html.unsafe("document.body.dataset.ready = 'yes'")}</script>
@@ -50,7 +48,7 @@ const makeApp = (options?: Csp.Options) =>
         NodeServices.layer,
         NodeHttpPlatform.layer,
         Etag.layer,
-        Assets.layer({ htmx: { url: "/vendor/htmx.js" } })
+        Assets.layer()
       ))
     ),
     { disableLogger: true }
@@ -75,9 +73,11 @@ Vitest.describe("Csp", () => {
           `img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`
       )
       Vitest.expect(first.body).toContain(`<script nonce="${nonce}">`)
-      // htmx marks the styles and scripts it adds, and Assets.Head its own scripts
-      Vitest.expect(first.body).toContain(`&quot;inlineStyleNonce&quot;:&quot;${nonce}&quot;`)
-      Vitest.expect(first.body).toContain(`<script src="/vendor/htmx.js" defer nonce="${nonce}"></script>`)
+      // Assets.Head marks the runtime's script, and puts the page's configuration in a meta element
+      // The nonce is base64, whose + and / mean something else in a pattern
+      Vitest.expect(first.body).toMatch(/<script type="module" src="\/assets\/start-[0-9a-f]{12}\.js" nonce="[^"]+"><\/script>/)
+      Vitest.expect(first.body).toContain(`.js" nonce="${nonce}"></script>`)
+      Vitest.expect(first.body).toContain(`<meta name="effect-views" content="{&quot;errorTarget&quot;:&quot;#errors&quot;}">`)
 
       const second = await get(app, "/")
       Vitest.expect(nonceIn(second.policy)).not.toBe(nonce)
@@ -100,6 +100,5 @@ Vitest.describe("Csp", () => {
 
   Vitest.it("has no nonce outside a request", () => {
     Vitest.expect(Csp.nonce()).toBeUndefined()
-    Vitest.expect(Html.render(<Htmx.Config />)).not.toContain("Nonce")
   })
 })

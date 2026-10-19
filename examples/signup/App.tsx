@@ -13,9 +13,9 @@ import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 import * as Assets from "effect-views/Assets"
 import * as Form from "effect-views/Form"
 import * as Html from "effect-views/Html"
-import * as Htmx from "effect-views/Htmx"
 import * as HttpFormEndpoint from "effect-views/HttpFormEndpoint"
 import * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"
+import * as Page from "effect-views/Page"
 import * as Submission from "effect-views/Submission"
 
 // Domain ---------------------------------------------------------------------
@@ -131,7 +131,7 @@ const SignUpView = ({ invalid }: { readonly invalid?: Submission.Invalid | undef
     <main id="sign-up-page">
       <h1>Create an account</h1>
       {/* novalidate lets the server's messages, rather than the browser's, explain every problem at once */}
-      <F.Root novalidate hx-post={F.action} hx-target="#sign-up-page" hx-swap="outerHTML">
+      <F.Root novalidate target="#sign-up-page">
         <F.Summary class="summary" />
 
         <Field invalid={F.hasErrors("name")}>
@@ -235,13 +235,12 @@ const styles = `
   }
 `
 
-const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
+const Document = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Create an account</title>
-      <Htmx.Config />
       <style>{Html.unsafe(styles)}</style>
       <Assets.Head />
     </head>
@@ -249,8 +248,8 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
   </html>
 )
 
-// Views on their own for htmx, inside the page for everything else
-const page = Htmx.layout(Page)
+// Views on their own for the runtime, inside the page for everything else
+const page = Page.layout(Document)
 
 // Handlers -------------------------------------------------------------------
 
@@ -270,7 +269,7 @@ const SignUpHandlers = HttpApiBuilder.group(
                 errors: { email: [`There is already an account for ${email}. Sign in instead.`] }
               })))
           )
-          return Htmx.seeOther(request, `/accounts/${account.id}`)
+          return Page.seeOther(request, `/accounts/${account.id}`)
         }).pipe(
           Effect.catchTag("FormInvalid", (invalid) =>
             Effect.succeed(page(request, <SignUpView invalid={invalid} />, { status: 422 })))

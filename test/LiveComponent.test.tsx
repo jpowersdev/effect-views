@@ -106,7 +106,7 @@ const makeApp = () => HttpRouter.toWebHandler(
     // Pages and actions sign with the same key, as when it is provided to HttpRouter.serve
     Layer.provideMerge(LiveComponent.secret(Redacted.make("test secret"))),
     // The runtime, which pages with live components need
-    Layer.provideMerge(Assets.layer({ htmx: false, api: Api }))
+    Layer.provideMerge(Assets.layer({ api: Api }))
   ),
   { disableLogger: true }
 )
@@ -162,7 +162,7 @@ const post = async (
 ) => {
   const response = await handler(new Request(`http://localhost${path}`, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", "hx-request": "true", ...headers },
+    headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
     body: new URLSearchParams(values)
   }))
   return { status: response.status, body: await response.text() }

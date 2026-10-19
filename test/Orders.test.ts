@@ -8,10 +8,10 @@ import * as Vitest from "vitest"
 import * as App from "../examples/orders/App.js"
 import * as Assets from "../src/Assets.js"
 import * as Csrf from "../src/Csrf.js"
-import * as Htmx from "../src/Htmx.js"
+import * as Page from "../src/Page.js"
 
 Vitest.describe("orders example", () => {
-  Vitest.it("serves documents and htmx fragments from the same view endpoints", async () => {
+  Vitest.it("serves documents, and fragments for the runtime, from the same view endpoints", async () => {
     const app = Layer.mergeAll(
       App.routes.pipe(
         // Merged, so pages rendered by the error middleware find the assets too
@@ -23,7 +23,7 @@ Vitest.describe("orders example", () => {
         ))
       ),
       App.errorPages,
-      Htmx.varyLayer,
+      Page.varyLayer,
       Csrf.layer()
     )
     const { dispose, handler } = HttpRouter.toWebHandler(app, { disableLogger: true })
@@ -39,19 +39,21 @@ Vitest.describe("orders example", () => {
       const page = await handler(new Request("http://localhost/orders/42"))
       Vitest.expect(page.status).toBe(200)
       Vitest.expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
-      Vitest.expect(page.headers.get("vary")).toBe("HX-Request, HX-Boosted")
+      Vitest.expect(page.headers.get("vary")).toBe("effect-views-request")
       Vitest.expect(await page.text()).toContain("<!doctype html>")
 
       const fragment = await handler(new Request("http://localhost/orders/42", {
-        headers: { "HX-Request": "true" }
+        headers: { "effect-views-request": "true" }
       }))
       const fragmentBody = await fragment.text()
       Vitest.expect(fragmentBody).toMatch(/^<article/)
       Vitest.expect(fragmentBody).not.toContain("<!doctype html>")
-      Vitest.expect(fragmentBody).toContain('hx-get="/orders/42/activity"')
+      // A placeholder the runtime loads, and a form it submits into the order's article
+      Vitest.expect(fragmentBody).toContain(`data-load="{&quot;url&quot;:&quot;/orders/42/activity&quot;,&quot;when&quot;:&quot;load&quot;,&quot;swap&quot;:&quot;outer&quot;}"`)
+      Vitest.expect(fragmentBody).toContain(`&quot;target&quot;:&quot;#order-42&quot;`)
 
       const activity = await handler(new Request("http://localhost/orders/42/activity", {
-        headers: { "HX-Request": "true" }
+        headers: { "effect-views-request": "true" }
       }))
       const activityBody = await activity.text()
       Vitest.expect(activityBody).toMatch(/^<section>/)
@@ -59,7 +61,7 @@ Vitest.describe("orders example", () => {
 
       const cancelled = await handler(new Request("http://localhost/orders/42/cancel", {
         method: "POST",
-        headers: { "HX-Request": "true" }
+        headers: { "effect-views-request": "true" }
       }))
       const cancelledBody = await cancelled.text()
       Vitest.expect(cancelledBody).toContain("Cancelled")
@@ -98,9 +100,9 @@ Vitest.describe("orders example", () => {
       Vitest.expect(forged.status).toBe(403)
       Vitest.expect(await forged.text()).toContain("That request was blocked.")
 
-      // ...fragments for htmx...
+      // ...fragments for the runtime...
       const unknownFragment = await handler(new Request("http://localhost/nope", {
-        headers: { "HX-Request": "true" }
+        headers: { "effect-views-request": "true" }
       }))
       Vitest.expect(unknownFragment.status).toBe(404)
       Vitest.expect(await unknownFragment.text()).toBe("<p>There is nothing here.</p>")

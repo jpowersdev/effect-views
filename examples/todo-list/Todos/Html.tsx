@@ -3,8 +3,8 @@
 import * as Assets from "effect-views/Assets"
 import * as Form from "effect-views/Form"
 import * as Html from "effect-views/Html"
-import * as Htmx from "effect-views/Htmx"
 import type * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"
+import * as Page from "effect-views/Page"
 import type * as Submission from "effect-views/Submission"
 import * as View from "effect-views/View"
 
@@ -47,7 +47,7 @@ const TodoApp = ({ invalid, todos }: TodoAppProps): Html.Html => {
         <TodoList todos={todos} />
       </Changes.Subscribe>
       <Search.View state={Views.SearchState.empty} />
-      <Form.Root hx-post={Form.action} hx-target="#todo-app" hx-swap="outerHTML">
+      <Form.Root target="#todo-app">
         <Form.Error role="alert" class="error" />
         {/* Runs in the browser: checks the title as you type, and still submits with the form */}
         <TitleField.View state={TitleField.stateFor(invalid)} />
@@ -62,13 +62,12 @@ const styles = `
   input:focus { outline: 3px solid #2f5bd3; outline-offset: 2px; }
 `
 
-const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
+const Document = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Effect Views Todo List</title>
-      <Htmx.Config />
       <style>{Html.unsafe(styles)}</style>
       <Assets.Head />
     </head>
@@ -79,5 +78,5 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
 export const app = (todos: ReadonlyArray<Todo.Todo>, invalid?: Submission.Invalid): Html.Html =>
   <TodoApp todos={todos} invalid={invalid} />
 
-/** Views on their own for htmx, inside the page for everything else */
-export const page = Htmx.layout(Page)
+/** Views on their own for the runtime, inside the page for everything else */
+export const page = Page.layout(Document)

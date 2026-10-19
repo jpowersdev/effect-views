@@ -6,14 +6,14 @@ import * as HttpServerError from "effect/http/HttpServerError"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 
 import * as Html from "./Html.js"
-import * as Htmx from "./Htmx.js"
+import * as Page from "./Page.js"
 
 export interface Info {
   readonly status: number
   readonly request: HttpServerRequest.HttpServerRequest
   /**
-   * Whether to render just a fragment, for htmx, rather than a whole page. False
-   * for boosted links and forms, which swap the whole body; see Htmx.wantsFragment.
+   * Whether to render just a fragment, for the effect-views runtime to put
+   * into the page, rather than a whole page; see Page.wantsFragment.
    */
   readonly fragment: boolean
   /** Why the request failed, when it failed rather than responding with an error status. */
@@ -21,11 +21,11 @@ export interface Info {
 }
 
 const acceptsHtml = (request: HttpServerRequest.HttpServerRequest): boolean =>
-  Htmx.isRequest(request) || (request.headers["accept"] ?? "").toLowerCase().includes("text/html")
+  Page.wantsFragment(request) || (request.headers["accept"] ?? "").toLowerCase().includes("text/html")
 
 /**
  * Renders HTML for failed requests and non-HTML error responses, for browsers
- * and htmx. Requests that do not accept HTML, such as JSON API calls, are left
+ * and the runtime. Requests that do not accept HTML, such as JSON API calls, are left
  * alone. Unexpected failures are logged before they are rendered.
  */
 export const layer = (render: (info: Info) => Html.Html) =>
@@ -34,7 +34,7 @@ export const layer = (render: (info: Info) => Html.Html) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         if (!acceptsHtml(request)) return yield* httpEffect
-        const fragment = Htmx.wantsFragment(request)
+        const fragment = Page.wantsFragment(request)
 
         const exit = yield* Effect.exit(httpEffect)
         if (Exit.isSuccess(exit)) {
