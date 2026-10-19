@@ -763,6 +763,15 @@ with `Assets.groupAt(prefix)` in the API instead of `Assets.group`. Components
 must be defined before the layer is built; rendering one defined later is an
 error.
 
+The files are compressed when the layer is built, with brotli at its highest
+quality and with gzip, and each request gets the smallest its
+`Accept-Encoding` allows, with `Vary: Accept-Encoding`. They never change once
+built, so this happens once rather than for each request; it adds a few tens of
+milliseconds to starting the server. Pass `compress: false` when a proxy or CDN
+in front of the server compresses them. Pages change with each request: to
+compress them, add Effect's `HttpMiddleware.compression()`, which leaves the
+files alone since they are compressed already.
+
 ## Streaming views
 
 `HttpViewEndpoint.events` declares a GET endpoint that streams HTML fragments
