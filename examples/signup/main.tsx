@@ -8,14 +8,14 @@ import { createServer } from "node:http"
 
 import * as Assets from "effect-views/Assets"
 import * as Csrf from "effect-views/Csrf"
-import * as Htmx from "effect-views/Htmx"
+import * as Page from "effect-views/Page"
 import * as App from "./App.js"
 
 const port = Number(process.env["PORT"] ?? 3000)
 
-const main = Layer.mergeAll(App.routes, Htmx.varyLayer, Csrf.layer()).pipe(
+const main = Layer.mergeAll(App.routes, Page.varyLayer, Csrf.layer()).pipe(
   HttpRouter.serve,
-  // htmx, served from the installed package
+  // The effect-views runtime, which submits the form and puts the response into the page
   Layer.provide(Assets.layer()),
   Layer.provide(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port }))
 )

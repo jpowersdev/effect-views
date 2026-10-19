@@ -31,9 +31,22 @@ const TodoForm = Form.make({
 })
 
 Vitest.describe("Form", () => {
+  Vitest.it("binds a target, so the runtime submits the form and puts the response there", () => {
+    const binding = `data-on-submit="[{&quot;_tag&quot;:&quot;Request&quot;,&quot;target&quot;:&quot;#todo-app&quot;,&quot;swap&quot;:&quot;outer&quot;}]"`
+    Vitest.expect(Html.render(<TodoForm.Root target="#todo-app" />)).toBe(
+      `<form ${binding} id="new-todo" method="post" action="/todos"></form>`
+    )
+    // Without one, the form submits as usual
+    Vitest.expect(Html.render(<TodoForm.Root />)).toBe(`<form id="new-todo" method="post" action="/todos"></form>`)
+    // A form written by hand, with another swap
+    Vitest.expect(Form.target("#list", "append")).toEqual({
+      "data-on-submit": `[{"_tag":"Request","target":"#list","swap":"append"}]`
+    })
+  })
+
   Vitest.it("renders controls with schema-bound names and label associations", () => {
     const view = (
-      <TodoForm.Root hx-boost="true">
+      <TodoForm.Root class="todo-form">
         <TodoForm.Label name="title">What needs doing?</TodoForm.Label>
         <TodoForm.Input name="title" autocomplete="off" required />
         <TodoForm.Label name="notes">Notes</TodoForm.Label>
@@ -51,7 +64,7 @@ Vitest.describe("Form", () => {
     )
 
     Vitest.expect(Html.render(view)).toBe(
-      `<form hx-boost="true" id="new-todo" method="post" action="/todos">` +
+      `<form class="todo-form" id="new-todo" method="post" action="/todos">` +
         `<label for="new-todo-title">What needs doing?</label>` +
         `<input autocomplete="off" required id="new-todo-title" name="title" type="text">` +
         `<label for="new-todo-notes">Notes</label>` +

@@ -50,11 +50,6 @@
       "types": "./dist/Html.d.ts",
       "default": "./dist/Html.js"
     },
-    "./Htmx": {
-      "effect-views-source": "./src/Htmx.ts",
-      "types": "./dist/Htmx.d.ts",
-      "default": "./dist/Htmx.js"
-    },
     "./HttpFormEndpoint": {
       "effect-views-source": "./src/HttpFormEndpoint.ts",
       "types": "./dist/HttpFormEndpoint.d.ts",
@@ -79,6 +74,11 @@
       "effect-views-source": "./src/On.ts",
       "types": "./dist/On.d.ts",
       "default": "./dist/On.js"
+    },
+    "./Page": {
+      "effect-views-source": "./src/Page.ts",
+      "types": "./dist/Page.d.ts",
+      "default": "./dist/Page.js"
     },
     "./Submission": {
       "effect-views-source": "./src/Submission.ts",
@@ -121,17 +121,7 @@
     "test": "pnpm build:lib && vitest run"
   },
   "peerDependencies": {
-    "effect": "^4.0.0",
-    "htmx.org": "^2.0.0",
-    "htmx-ext-sse": "^2.2.0"
-  },
-  "peerDependenciesMeta": {
-    "htmx.org": {
-      "optional": true
-    },
-    "htmx-ext-sse": {
-      "optional": true
-    }
+    "effect": "^4.0.0"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0",
@@ -139,8 +129,6 @@
     "@effect/vitest": "4.0.0",
     "@types/node": "26.1.2",
     "effect": "4.0.0",
-    "htmx-ext-sse": "2.2.4",
-    "htmx.org": "2.0.8",
     "tsx": "4.23.11",
     "typescript": "7.0.2",
     "vitest": "5.0.1"

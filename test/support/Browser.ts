@@ -50,6 +50,8 @@ const keys = {
 
 export interface Page {
   readonly goto: (url: string) => Promise<void>
+  /** Resolves when the next page has loaded, such as one the page navigates to itself. */
+  readonly loaded: () => Promise<void>
   /** Evaluates an expression in the page, awaiting a promise it returns. */
   readonly evaluate: <A = unknown>(expression: string) => Promise<A>
   /** Waits until an expression is truthy in the page. */
@@ -138,19 +140,23 @@ export const launch = async (): Promise<Browser> => {
     return result.value as A
   }
 
+  const loaded = () =>
+    new Promise<void>((resolve) => {
+      const listener = (message: Message) => {
+        if (message.method !== "Page.loadEventFired") return
+        listeners.delete(listener)
+        resolve()
+      }
+      listeners.add(listener)
+    })
+
   const page: Page = {
     goto: async (url) => {
-      const loaded = new Promise<void>((resolve) => {
-        const listener = (message: Message) => {
-          if (message.method !== "Page.loadEventFired") return
-          listeners.delete(listener)
-          resolve()
-        }
-        listeners.add(listener)
-      })
+      const load = loaded()
       await send("Page.navigate", { url })
-      await loaded
+      await load
     },
+    loaded,
     evaluate,
     waitFor: async (expression, timeoutMs = 5_000) => {
       const deadline = Date.now() + timeoutMs

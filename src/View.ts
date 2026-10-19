@@ -1,9 +1,11 @@
+import * as Duration from "effect/Duration"
 import * as HttpApi from "effect/http-api/HttpApi"
 import * as HttpApiClient from "effect/http-api/HttpApiClient"
 import type * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint"
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
 import * as Html from "./Html.js"
+import * as Protocol from "./internal/Protocol.js"
 
 export interface EndpointLike extends HttpApiEndpoint.ConstraintRequest {
   readonly method: "GET"
@@ -33,25 +35,31 @@ export type LinkProps<Endpoint extends EndpointLike> = NativeAttributes<"href"> 
 }
 
 export type LazyProps<Endpoint extends EndpointLike> =
-  & NativeAttributes<"hx-get" | "hx-trigger" | "hx-swap">
+  & NativeAttributes<typeof Protocol.loadAttribute>
   & Request<Endpoint>
   & {
     /** The placeholder element. Defaults to "div". */
     readonly as?: string
     /** Shown until the view arrives, and kept if it never does. */
     readonly children?: Html.Child
-    /** An htmx trigger such as "load" (the default), "revealed", or "every 30s". */
-    readonly trigger?: string
-    /** An htmx swap strategy. Defaults to "outerHTML", replacing the placeholder. */
-    readonly swap?: string
+    /**
+     * When to load the view: "load" (the default) once the page has loaded,
+     * "visible" once the placeholder scrolls into view, or `{ every: "30
+     * seconds" }` again and again.
+     */
+    readonly trigger?: "load" | "visible" | { readonly every: Duration.Input }
+    /** "outer" (the default) replaces the placeholder with the view; "inner" replaces what it contains. */
+    readonly swap?: "outer" | "inner"
   }
 
 export type SubscribeProps<Endpoint extends EndpointLike> =
-  & NativeAttributes<"hx-ext" | "sse-connect" | "sse-swap">
+  & NativeAttributes<typeof Protocol.subscribeAttribute>
   & Request<Endpoint>
   & {
-    /** The name of the events whose HTML replaces the element's contents, or several, separated by commas. */
-    readonly event: string
+    /** The event whose HTML replaces the element's contents, or several. */
+    readonly event: string | ReadonlyArray<string>
+    /** "inner" (the default) replaces the element's contents with each event; "append" adds each after them. */
+    readonly swap?: "inner" | "append"
     /** The element. Defaults to "div". */
     readonly as?: string
     /** Shown until the first event arrives, and kept if none does. */
@@ -59,12 +67,12 @@ export type SubscribeProps<Endpoint extends EndpointLike> =
   }
 
 export type ConnectProps<Endpoint extends EndpointLike> =
-  & NativeAttributes<"hx-ext" | "sse-connect" | "sse-swap">
+  & NativeAttributes<typeof Protocol.subscribeAttribute | typeof Protocol.eventAttribute>
   & Request<Endpoint>
   & {
     /** The element. Defaults to "div". */
     readonly as?: string
-    /** What it contains: elements with `sse-swap` take the events they name. */
+    /** What it contains: elements given `event(name)` take the events they name. */
     readonly children?: Html.Child
   }
 
@@ -79,22 +87,25 @@ export interface View<Endpoint extends EndpointLike> {
   /** A link to the view. */
   readonly Link: (props: LinkProps<Endpoint>) => Html.Html
   /**
-   * A placeholder that htmx replaces with the view once the page has loaded, or
-   * when its trigger fires. It only loads when JavaScript is available.
+   * A placeholder that the effect-views runtime replaces with the view once
+   * the page has loaded, or when its trigger says. It only loads when
+   * JavaScript is available.
    */
   readonly Lazy: (props: LazyProps<Endpoint>) => Html.Html
   /**
-   * An element whose contents htmx replaces with the HTML of each event the
-   * view streams, for endpoints declared with HttpViewEndpoint.events. It
-   * needs htmx's sse extension; see Assets.Options.
+   * An element whose contents the effect-views runtime replaces with the HTML
+   * of each event the view streams, for endpoints declared with
+   * HttpViewEndpoint.events.
    */
   readonly Subscribe: (props: SubscribeProps<Endpoint>) => Html.Html
   /**
    * An element that opens one connection to the view's stream, for elements
-   * inside it that take different events: each names its events in
-   * `sse-swap`. Use it rather than several Subscribes to the same stream.
+   * inside it that take different events, each given `event(name)`. Use it
+   * rather than several Subscribes to the same stream.
    */
   readonly Connect: (props: ConnectProps<Endpoint>) => Html.Html
+  /** Attributes for an element inside a Connect: the event, by name, whose HTML replaces what it contains. */
+  readonly event: (name: string) => { readonly [Protocol.eventAttribute]: string }
 }
 
 /**
@@ -120,38 +131,34 @@ export const derive = <const Endpoint extends EndpointLike>(config: DeriveConfig
   }
 
   const Lazy = (props: LazyProps<Endpoint>): Html.Html => {
-    const { as = "div", children, params, query, swap = "outerHTML", trigger = "load", ...attributes } =
+    const { as = "div", children, params, query, swap = "outer", trigger = "load", ...attributes } =
       props as LazyProps<Endpoint> & WithRequest
-    return Html.element(as, {
-      ...attributes,
-      "hx-get": build({ params, query }),
-      "hx-trigger": trigger,
-      "hx-swap": swap,
-      children
-    })
+    const load: Protocol.Load = {
+      url: build({ params, query }),
+      when: typeof trigger === "string" ? trigger : { every: Duration.toMillis(trigger.every) },
+      swap
+    }
+    return Html.element(as, { ...attributes, [Protocol.loadAttribute]: JSON.stringify(load), children })
   }
 
   const Subscribe = (props: SubscribeProps<Endpoint>): Html.Html => {
-    const { as = "div", children, event, params, query, ...attributes } =
+    const { as = "div", children, event, params, query, swap = "inner", ...attributes } =
       props as SubscribeProps<Endpoint> & WithRequest
-    return Html.element(as, {
-      ...attributes,
-      "hx-ext": "sse",
-      "sse-connect": build({ params, query }),
-      "sse-swap": event,
-      children
-    })
+    const subscription: Protocol.Subscription = {
+      url: build({ params, query }),
+      events: typeof event === "string" ? [event] : event,
+      swap
+    }
+    return Html.element(as, { ...attributes, [Protocol.subscribeAttribute]: JSON.stringify(subscription), children })
   }
 
   const Connect = (props: ConnectProps<Endpoint>): Html.Html => {
     const { as = "div", children, params, query, ...attributes } = props as ConnectProps<Endpoint> & WithRequest
-    return Html.element(as, {
-      ...attributes,
-      "hx-ext": "sse",
-      "sse-connect": build({ params, query }),
-      children
-    })
+    const subscription: Protocol.Subscription = { url: build({ params, query }), swap: "inner" }
+    return Html.element(as, { ...attributes, [Protocol.subscribeAttribute]: JSON.stringify(subscription), children })
   }
 
-  return Object.freeze({ endpoint, url, Link, Lazy, Subscribe, Connect })
+  const event = (name: string) => ({ [Protocol.eventAttribute]: name }) as { readonly [Protocol.eventAttribute]: string }
+
+  return Object.freeze({ endpoint, url, Link, Lazy, Subscribe, Connect, event })
 }

@@ -104,8 +104,8 @@ export function del<
 }
 
 /**
- * An HTML fragment sent as a server-sent event. htmx swaps it into the
- * elements that listen for its name; see View.derive's Subscribe.
+ * An HTML fragment sent as a server-sent event. The effect-views runtime puts
+ * it into the elements that listen for its name; see View.derive's Subscribe.
  */
 export const HtmlEvent = /*#__PURE__*/ Schema.Struct({
   id: Schema.optional(Schema.String),

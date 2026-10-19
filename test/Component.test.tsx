@@ -18,8 +18,8 @@ import * as Assets from "../src/Assets.js"
 import * as Component from "../src/Component.js"
 import { css } from "../src/Component.js"
 import * as Html from "../src/Html.js"
-import * as Htmx from "../src/Htmx.js"
 import * as HttpViewEndpoint from "../src/HttpViewEndpoint.js"
+import * as Page from "../src/Page.js"
 
 const Card = Component.make("test-card", {
   style: css`
@@ -41,13 +41,13 @@ export const typeChecks = () => [
   <Card title={1}>Body</Card>
 ]
 
-const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
+const Document = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
   <html>
     <head><Assets.Head /></head>
     <body>{children}</body>
   </html>
 )
-const page = Htmx.layout(Page)
+const page = Page.layout(Document)
 
 const pages = HttpApiGroup.make("pages").add(
   HttpViewEndpoint.get("home", "/"),
@@ -98,16 +98,16 @@ Vitest.describe("Component.make", () => {
 })
 
 Vitest.describe("Assets.layer", () => {
-  Vitest.it("serves htmx and component styles under names that change with their contents", async () => {
+  Vitest.it("serves component styles and the effect-views runtime under names that change with their contents", async () => {
     const { dispose, handler } = makeApp()
     try {
       const { body } = await get(handler, "/")
       const paths = assetPaths(body)
-      Vitest.expect(paths).toEqual([
-        Vitest.expect.stringMatching(/^\/assets\/components-[0-9a-f]{12}\.css$/),
-        Vitest.expect.stringMatching(/^\/assets\/htmx-[0-9a-f]{12}\.js$/)
-      ])
-      Vitest.expect(body).toContain(`<script src="${paths[1]}" defer></script>`)
+      Vitest.expect(paths[0]).toMatch(/^\/assets\/components-[0-9a-f]{12}\.css$/)
+      // The runtime, and the modules it imports, preloaded
+      const runtime = /<script type="module" src="(\/assets\/start-[0-9a-f]{12}\.js)"><\/script>/.exec(body)?.[1]
+      Vitest.expect(runtime).toBeDefined()
+      Vitest.expect(body).toMatch(/<link rel="modulepreload" href="\/assets\/runtime-[0-9a-f]{12}\.js">/)
 
       const styles = await get(handler, paths[0]!)
       Vitest.expect(styles.status).toBe(200)
@@ -116,8 +116,9 @@ Vitest.describe("Assets.layer", () => {
       Vitest.expect(styles.body).toContain("@scope (test-card) to (:scope [data-component]) {")
       Vitest.expect(styles.body).toContain("h2 { margin: 0; }")
 
-      const htmx = await get(handler, paths[1]!)
-      Vitest.expect(htmx.body).toContain("htmx")
+      const script = await get(handler, runtime!)
+      Vitest.expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
+      Vitest.expect(script.body).toMatch(/import"\/assets\/[^"]+"|from"\/assets\/[^"]+"/)
 
       Vitest.expect((await get(handler, "/assets/missing.js")).status).toBe(404)
     } finally {
@@ -125,38 +126,22 @@ Vitest.describe("Assets.layer", () => {
     }
   })
 
-  Vitest.it("serves htmx extensions after htmx", async () => {
-    const { dispose, handler } = makeApp({ extensions: ["sse"] })
+  Vitest.it("serves the files under another prefix", async () => {
+    const { dispose, handler } = makeApp({ prefix: "/static" })
     try {
       const paths = assetPaths((await get(handler, "/")).body)
-      Vitest.expect(paths.slice(1)).toEqual([
-        Vitest.expect.stringMatching(/^\/assets\/htmx-[0-9a-f]{12}\.js$/),
-        Vitest.expect.stringMatching(/^\/assets\/htmx-ext-sse-[0-9a-f]{12}\.js$/)
-      ])
-      Vitest.expect((await get(handler, paths[2]!)).body).toContain(`defineExtension("sse"`)
+      Vitest.expect(paths.length).toBeGreaterThan(1)
+      for (const path of paths) Vitest.expect(path).toMatch(/^\/static\//)
+      Vitest.expect((await get(handler, paths[0]!)).status).toBe(200)
     } finally {
       await dispose()
-    }
-  })
-
-  Vitest.it("loads htmx from elsewhere, or leaves it out", async () => {
-    const elsewhere = makeApp({ htmx: { url: "https://cdn.example/htmx.min.js" }, prefix: "/static" })
-    const without = makeApp({ htmx: false })
-    try {
-      const body = (await get(elsewhere.handler, "/")).body
-      Vitest.expect(assetPaths(body)[0]).toMatch(/^\/static\/components-/)
-      Vitest.expect(body).toContain(`src="https://cdn.example/htmx.min.js"`)
-      Vitest.expect((await get(without.handler, "/")).body).not.toContain("htmx")
-    } finally {
-      await elsewhere.dispose()
-      await without.dispose()
     }
   })
 
   Vitest.it("serves the application's own files, under names that change with their contents", async () => {
     const directory = await mkdtemp(join(tmpdir(), "effect-views-assets-"))
     await writeFile(join(directory, "app.css"), "body { margin: 0; }")
-    const { dispose, handler } = makeApp({ htmx: false, files: { "app.css": join(directory, "app.css") } })
+    const { dispose, handler } = makeApp({ files: { "app.css": join(directory, "app.css") } })
     try {
       const [path] = assetPaths((await get(handler, "/app")).body)
       Vitest.expect(path).toMatch(/^\/assets\/app-[0-9a-f]{12}\.css$/)
@@ -173,7 +158,7 @@ Vitest.describe("Assets.layer", () => {
     const { dispose, handler } = HttpRouter.toWebHandler(
       HttpApiBuilder.layer(api).pipe(
         Layer.provide(Assets.groupLayer(api)),
-        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ htmx: false })))
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer()))
       ),
       { disableLogger: true }
     )

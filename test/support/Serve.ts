@@ -1,5 +1,6 @@
 // Serves a web handler, or a few files, over HTTP on a free port, for the
-// browser tests to load.
+// browser tests to load. Responses are streamed, so a handler can send
+// server-sent events; see eventStream.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 
@@ -37,9 +38,15 @@ export const serve = async (handler: (request: Request) => Promise<Response>): P
       })
       const response = await handler(request)
       outgoing.writeHead(response.status, Object.fromEntries(response.headers))
-      outgoing.end(Buffer.from(await response.arrayBuffer()))
+      outgoing.flushHeaders()
+      if (response.body === null) return void outgoing.end()
+      // The browser closing the connection, such as an EventSource closed, cancels the body
+      const reader = response.body.getReader()
+      outgoing.once("close", () => void reader.cancel().catch(() => {}))
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) outgoing.write(chunk.value)
+      if (!outgoing.destroyed) outgoing.end()
     } catch (error) {
-      outgoing.writeHead(500)
+      if (!outgoing.headersSent) outgoing.writeHead(500)
       outgoing.end(String(error))
     }
   })
@@ -48,7 +55,44 @@ export const serve = async (handler: (request: Request) => Promise<Response>): P
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
-    close: () => new Promise((resolve) => server.close(() => resolve()))
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve())
+        // Streams still open, and idle keep-alive connections, would hold the server open
+        server.closeAllConnections()
+      })
+  }
+}
+
+export interface EventStream {
+  /** The response for the handler to return: the stream, as text/event-stream. */
+  readonly response: Response
+  /** Sends an event; each line of `data` becomes a `data:` line, which the browser joins again. */
+  readonly send: (event: string, data: string) => void
+  /** Whether the browser has closed the connection. */
+  readonly isClosed: () => boolean
+}
+
+/** A stream of server-sent events, for a handler to respond with and send events to later. */
+export const eventStream = (): EventStream => {
+  const encoder = new TextEncoder()
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+  let isClosed = false
+  const body = new ReadableStream<Uint8Array>({
+    start: (started) => {
+      controller = started
+    },
+    cancel: () => {
+      isClosed = true
+    }
+  })
+  return {
+    response: new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } }),
+    send: (event, data) => {
+      const lines = data.split("\n").map((line) => `data: ${line}`).join("\n")
+      controller?.enqueue(encoder.encode(`event: ${event}\n${lines}\n\n`))
+    },
+    isClosed: () => isClosed
   }
 }
 

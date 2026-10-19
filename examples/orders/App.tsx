@@ -12,11 +12,12 @@ import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
 import * as Assets from "effect-views/Assets"
 import * as ErrorPage from "effect-views/ErrorPage"
+import * as Form from "effect-views/Form"
 import * as Html from "effect-views/Html"
-import * as Htmx from "effect-views/Htmx"
 import * as HttpFormEndpoint from "effect-views/HttpFormEndpoint"
 import * as HttpViewEndpoint from "effect-views/HttpViewEndpoint"
 import * as LiveComponent from "effect-views/LiveComponent"
+import * as Page from "effect-views/Page"
 import * as View from "effect-views/View"
 
 import * as Lines from "./Lines.js"
@@ -132,7 +133,7 @@ export const api = HttpApi.make("Example").add(
 const OrdersIndex = ({ orders }: { readonly orders: ReadonlyArray<Order> }): Html.Html => (
   <section id="orders">
     <h1>Orders</h1>
-    <p>This example serves complete pages and swaps focused fragments with htmx.</p>
+    <p>This example serves complete pages, and the effect-views runtime puts focused fragments into them.</p>
     <ul>
       {orders.map((order) => (
         <li>
@@ -164,13 +165,7 @@ const OrderView = ({ order }: { readonly order: Order }): Html.Html => (
     <p>Status: <strong>{order.status}</strong></p>
     <Lines.Summary lines={order.lines} />
     {order.status === "Active" && (
-      <form
-        method="post"
-        action={`/orders/${order.id}/cancel`}
-        hx-post={`/orders/${order.id}/cancel`}
-        hx-target={`#order-${order.id}`}
-        hx-swap="outerHTML"
-      >
+      <form method="post" action={`/orders/${order.id}/cancel`} {...Form.target(`#order-${order.id}`)}>
         <button type="submit">Cancel order</button>
       </form>
     )}
@@ -196,14 +191,13 @@ const ActivityPanel = (orderId: number) =>
     )
   })
 
-const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
+const Document = ({ children }: { readonly children: Html.Child }): Html.Html => Html.document(
   <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Orders</title>
-      <Htmx.Config errorTarget="#errors" />
-      <Assets.Head />
+      <Assets.Head errorTarget="#errors" />
     </head>
     <body>
       <header><Home.Link>Orders</Home.Link></header>
@@ -213,8 +207,8 @@ const Page = ({ children }: { readonly children: Html.Child }): Html.Html => Htm
   </html>
 )
 
-// Views on their own for htmx, inside the page for everything else
-const page = Htmx.layout(Page)
+// Views on their own for the runtime, inside the page for everything else
+const page = Page.layout(Document)
 
 const NotFound = ({ orderId }: { readonly orderId: number }): Html.Html => (
   <section>
@@ -224,7 +218,7 @@ const NotFound = ({ orderId }: { readonly orderId: number }): Html.Html => (
 )
 
 // An expected error, handled where it happens and shown with a 404 status.
-const notFound = (request: Parameters<typeof Htmx.isRequest>[0]) => (error: OrderNotFound) =>
+const notFound = (request: Parameters<typeof Page.wantsFragment>[0]) => (error: OrderNotFound) =>
   Effect.succeed(page(request, <NotFound orderId={error.orderId} />, { status: 404 }))
 
 const OrdersHandlers = HttpApiBuilder.group(
@@ -275,10 +269,10 @@ const statusMessages: Readonly<Record<number, string>> = {
   404: "There is nothing here."
 }
 
-/** Pages for unexpected failures and unknown routes; fragments for htmx. */
+/** Pages for unexpected failures and unknown routes; fragments for the runtime. */
 export const errorPages = ErrorPage.layer(({ fragment, status }) => {
   const message = statusMessages[status] ?? "Something went wrong. Please try again."
   return fragment
     ? <p>{message}</p>
-    : <Page><h1>{status === 404 ? "Not found" : "Error"}</h1><p>{message}</p></Page>
+    : <Document><h1>{status === 404 ? "Not found" : "Error"}</h1><p>{message}</p></Document>
 })

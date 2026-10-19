@@ -15,6 +15,7 @@ import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 import * as Vitest from "vitest"
 
 import * as Assets from "../../src/Assets.js"
+import * as Form from "../../src/Form.js"
 import * as Html from "../../src/Html.js"
 import * as HttpViewEndpoint from "../../src/HttpViewEndpoint.js"
 import * as LiveComponent from "../../src/LiveComponent.js"
@@ -39,10 +40,19 @@ const CounterHandlers = LiveComponent.server(Counter.View, {
 
 const group = HttpApiGroup.make("pages")
   .add(HttpViewEndpoint.get("home", "/"))
+  .add(HttpViewEndpoint.post("panel", "/panel"))
   .add(...LiveComponent.endpoints(Counter.Counter))
   .add(...LiveComponent.endpoints(Toggle.Toggle))
 
 const Api = HttpApi.make("test").add(group).add(Assets.group)
+
+/** Both components, as the page first shows them, or with the count the server says. */
+const Panel = ({ count }: { readonly count: number }) => (
+  <>
+    <Counter.View state={new Counter.CounterState({ count, query: "", searches: 0, notes: [] })} />
+    <Toggle.View state={new Toggle.ToggleState({ on: false, label: "Lamp", count: 0 })} />
+  </>
+)
 
 const home = () =>
   Effect.sync(() =>
@@ -52,8 +62,11 @@ const home = () =>
           <Assets.Head />
         </head>
         <body>
-          <Counter.View state={new Counter.CounterState({ count: 0, query: "", searches: 0, notes: [] })} />
-          <Toggle.View state={new Toggle.ToggleState({ on: false, label: "Lamp", count: 0 })} />
+          <section id="panel"><Panel count={0} /></section>
+          {/* The page's own form, whose response renders both components again */}
+          <form method="post" action="/panel" {...Form.target("#panel", "inner")}>
+            <button id="replace-panel">Replace</button>
+          </form>
         </body>
       </html>
     )
@@ -64,13 +77,14 @@ const app = () =>
     HttpApiBuilder.layer(Api).pipe(
       Layer.provide([
         HttpApiBuilder.group(Api, "pages", (handlers) =>
-          handlers.handle("home", home).pipe(LiveComponent.handle(Counter.Counter, Toggle.Toggle))).pipe(
+          handlers.handle("home", home).handle("panel", () => Effect.succeed(<Panel count={41} />))
+            .pipe(LiveComponent.handle(Counter.Counter, Toggle.Toggle))).pipe(
             Layer.provide([CounterHandlers, ToggleHandlers])
           ),
         Assets.groupLayer(Api)
       ]),
       Layer.provideMerge(
-        Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ htmx: false, api: Api }))
+        Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ api: Api }))
       )
     ),
     { disableLogger: true }
@@ -182,6 +196,29 @@ Vitest.describe.skipIf(Browser.executable === undefined)("the runtime, in Chromi
       return { pressed: copy.querySelector("button").getAttribute("aria-pressed") }
     })()`)
     Vitest.expect(result).toEqual({ pressed: "true" })
+  })
+
+  Vitest.it("shows what the server renders for the page, starting browser components again with its state", async () => {
+    // Change the browser component, so its state differs from what the server renders, though it rendered it before
+    await page().evaluate(`(window.before = document.querySelector("test-toggle")).querySelector("button").click()`)
+    await page().evaluate(`document.querySelectorAll("test-toggle button")[1].click()`)
+    await page().waitFor(`document.querySelectorAll("test-toggle button")[1].textContent === "5"`)
+    await page().evaluate(`document.querySelector("#replace-panel").click()`)
+    await page().waitFor(`document.querySelector("#count").textContent === "41"`)
+    await page().waitFor(`document.querySelectorAll("test-toggle button")[1].textContent === "0"`)
+    Vitest.expect(await page().evaluate(`({
+      same: window.before === document.querySelector("test-toggle"),
+      pressed: document.querySelector("test-toggle button").getAttribute("aria-pressed")
+    })`)).toEqual({ same: true, pressed: "false" })
+    // Both carry on from the server's state: 0 + 5, and 41 + 1
+    await page().evaluate(`document.querySelectorAll("test-toggle button")[1].click()`)
+    await page().evaluate(`document.querySelector("#increment").click()`)
+    await page().waitFor(`document.querySelector("#count").textContent === "42"`)
+    await page().waitFor(`document.querySelectorAll("test-toggle button")[1].textContent === "5"`)
+    // Once: the component that started again is the only one running
+    await page().evaluate(`new Promise((resolve) => setTimeout(resolve, 100))`)
+    Vitest.expect(await text("test-toggle")).toContain("5")
+    Vitest.expect(await page().evaluate(`document.querySelectorAll("test-toggle button")[1].textContent`)).toBe("5")
   })
 
   Vitest.it("logs nothing unexpected", async () => {

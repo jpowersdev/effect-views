@@ -8,7 +8,7 @@ import { createServer } from "node:http"
 
 import * as Assets from "effect-views/Assets"
 import * as Csrf from "effect-views/Csrf"
-import * as Htmx from "effect-views/Htmx"
+import * as Page from "effect-views/Page"
 
 import * as RootApi from "./RootApi.js"
 import * as TodosHttp from "./Todos/Http.js"
@@ -22,16 +22,16 @@ const DocsRoute = HttpApiScalar.layer(RootApi.Api, { path: "/docs" })
 export const Routes = Layer.mergeAll(
   ApiRoutes,
   DocsRoute,
-  Htmx.varyLayer,
+  Page.varyLayer,
   Csrf.layer()
 )
 
 /**
- * htmx, its sse extension, the styles of every component defined by the
- * modules above, and the live components in the API that run in the browser,
- * bundled with the effect-views runtime.
+ * The styles of every component defined by the modules above, and the
+ * effect-views runtime, with the live components in the API that run in the
+ * browser.
  */
-export const AssetsLayer = Assets.layer({ extensions: ["sse"], api: RootApi.Api })
+export const AssetsLayer = Assets.layer({ api: RootApi.Api })
 
 const host = process.env["HOST"] ?? "127.0.0.1"
 const port = Number(process.env["PORT"] ?? 3000)

@@ -42,13 +42,6 @@ const urlAttributes = /*#__PURE__*/ new Set([
   "data",
   "formaction",
   "href",
-  "hx-delete",
-  "hx-get",
-  "hx-patch",
-  "hx-post",
-  "hx-push-url",
-  "hx-put",
-  "hx-replace-url",
   "poster",
   "src",
   "xlink:href"

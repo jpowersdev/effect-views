@@ -41,7 +41,7 @@ const makeApp = (options?: Assets.Options) => {
     HttpApiBuilder.layer(Api).pipe(
       Layer.provide([handlers, Assets.groupLayer(Api)]),
       Layer.provideMerge(
-        Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ htmx: false, api: Api, ...options }))
+        Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer({ api: Api, ...options }))
       )
     ),
     { disableLogger: true }
@@ -165,8 +165,15 @@ Vitest.describe("LiveComponent in the browser", () => {
   Vitest.it("refuses to build when a component in the API has no browser handlers loaded", async () => {
     const Missing = LiveComponent.make("test-missing", { state: Schema.Struct({}), runs: "browser" })
     const api = HttpApi.make("missing").add(HttpApiGroup.make("pages").add(...LiveComponent.endpoints(Missing)))
-    const exit = await Effect.runPromiseExit(Assets.make({ htmx: false, api }))
+    const exit = await Effect.runPromiseExit(Assets.make({ api }))
     Vitest.expect(String(exit)).toMatch(/test-missing> runs in the browser, but the module that calls LiveComponent.browser/)
+  })
+
+  Vitest.it("refuses to render when Assets.layer was not given the API, so did not bundle the component", async () => {
+    const withoutApi = await Effect.runPromise(Assets.make())
+    Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<Toggle.View state={initial} />)).pipe(
+      Effect.provideService(Assets.Assets, withoutApi)
+    ))).toThrow(/runs in the browser, but Assets.layer did not bundle it; .*Assets.layer\(\{ api \}\)/)
   })
 })
 
@@ -190,17 +197,18 @@ Vitest.describe("LiveComponent on the server", () => {
     Vitest.expect(JSON.parse(attribute(body, "data-on-click")!)[0].concurrency).toBe("switch")
   })
 
-  Vitest.it("needs the runtime, which Assets.layer bundles when the API has live components", async () => {
+  Vitest.it("needs the runtime, which Assets.layer always bundles", async () => {
     const Counter = LiveComponent.make("test-needs-runtime", { state: Schema.Struct({}) }).add(LiveAction.make("go"))
     const CounterView = LiveComponent.view(Counter, { render: () => <p /> })
-    const withoutApi = await Effect.runPromise(Assets.make({ htmx: false }))
-    Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
+    // A component that runs on the server needs only the runtime, not its own module, so not the API
+    const withoutApi = await Effect.runPromise(Assets.make())
+    Vitest.expect(Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
       Effect.provideService(Assets.Assets, withoutApi)
-    ))).toThrow(/needs the effect-views runtime; give Assets.layer the API/)
+    ))).toContain(`data-live="server"`)
     // While handling a request with no Assets.layer at all
     Vitest.expect(() => Effect.runSync(Effect.sync(() => Html.render(<CounterView state={{}} />)).pipe(
       Effect.provideService(HttpServerRequest.HttpServerRequest, HttpServerRequest.fromWeb(new Request("http://localhost/")))
-    ))).toThrow(/provide Assets.layer\(\{ api \}\) to HttpRouter.serve/)
+    ))).toThrow(/provide Assets.layer\(\) to HttpRouter.serve/)
     // Outside a request, such as in a test, it renders
     Vitest.expect(Html.render(<CounterView state={{}} />)).toContain(`data-live="server"`)
   })

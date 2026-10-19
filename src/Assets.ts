@@ -22,6 +22,7 @@ import * as Zlib from "node:zlib"
 import * as Csp from "./Csp.js"
 import * as Html from "./Html.js"
 import * as Bundler from "./internal/Bundler.js"
+import * as Protocol from "./internal/Protocol.js"
 import {
   Assets,
   current,
@@ -46,16 +47,6 @@ export interface Options {
   /** Where to serve the files. Defaults to "/assets". */
   readonly prefix?: string
   /**
-   * htmx is served from the installed `htmx.org` package by default. Pass a URL
-   * to load it from elsewhere, or false to leave it out.
-   */
-  readonly htmx?: false | { readonly url: string }
-  /**
-   * htmx extensions to serve after htmx, by name, from their `htmx-ext-<name>`
-   * packages, such as "sse" from `htmx-ext-sse`.
-   */
-  readonly extensions?: ReadonlyArray<string>
-  /**
    * The application's own files, such as its stylesheet and scripts, by the
    * name pages refer to them with in `url`, and where to read them from. They
    * are read when the layer is built and served with the other assets.
@@ -66,10 +57,9 @@ export interface Options {
    */
   readonly files?: Readonly<Record<string, string | URL>>
   /**
-   * The application's API. Live components are found in it, by their
-   * endpoints: when it has any, the effect-views runtime is bundled when the
-   * layer is built, for the head to load, with the modules of the components
-   * that run in the browser.
+   * The application's API. Live components that run in the browser are found
+   * in it, by their endpoints, and their modules are bundled with the
+   * effect-views runtime when the layer is built.
    *
    * ```ts
    * Assets.layer({ api: Api })
@@ -172,29 +162,16 @@ const prefixOf = (options: Options | undefined): `/${string}` => {
 
 const hash = (body: Uint8Array): string => createHash("sha256").update(body).digest("hex").slice(0, 12)
 
-const readHtmx = Effect.tryPromise({
-  try: () => readFile(fileURLToPath(import.meta.resolve("htmx.org/dist/htmx.min.js"))),
-  catch: (cause) =>
-    new AssetsError({
-      message: "Could not find htmx; install htmx.org, or pass htmx: { url } or htmx: false to Assets.layer",
-      cause
-    })
-})
-
-const readExtension = (name: string) =>
-  Effect.tryPromise({
-    try: () => readFile(fileURLToPath(import.meta.resolve(`htmx-ext-${name}/dist/${name}.min.js`))),
-    catch: (cause) =>
-      new AssetsError({ message: `Could not find the htmx ${name} extension; install htmx-ext-${name}`, cause })
-  })
-
 const headTags = (
-  manifest: Pick<Manifest, "stylesheets" | "scripts" | "modules" | "modulePreloads">,
-  nonce: string | undefined
+  manifest: Pick<Manifest, "stylesheets" | "modules" | "modulePreloads">,
+  nonce: string | undefined,
+  config: Protocol.Config
 ): Html.Html =>
   Html.fragment(
+    Object.keys(config).length === 0
+      ? undefined
+      : Html.element("meta", { name: Protocol.configMeta, content: JSON.stringify(config) }),
     manifest.stylesheets.map((href) => Html.element("link", { rel: "stylesheet", href })),
-    manifest.scripts.map((src) => Html.element("script", { src, defer: true, nonce })),
     manifest.modulePreloads.map((href) => Html.element("link", { rel: "modulepreload", href })),
     manifest.modules.map((src) => Html.element("script", { type: "module", src, nonce }))
   )
@@ -218,10 +195,10 @@ const runtimeEntry = (): string => {
   return existsSync(compiled) ? compiled : fileURLToPath(new URL("./client/start.ts", import.meta.url))
 }
 
-const bundleLiveComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${string}`) =>
+/** The effect-views runtime, with the modules of the live components in the API that run in the browser. */
+const bundleRuntime = (api: HttpApi.HttpApi<string, any> | undefined, prefix: `/${string}`) =>
   Effect.gen(function* () {
-    const components = liveComponents(api)
-    if (components.size === 0) return undefined
+    const components = api === undefined ? new Map<string, LiveComponent.Runs>() : liveComponents(api)
     const files = new Map<string, string>()
     for (const [tag, runs] of components) {
       if (runs !== "browser") continue
@@ -255,9 +232,9 @@ const bundleLiveComponents = (api: HttpApi.HttpApi<string, any>, prefix: `/${str
   })
 
 /**
- * Builds the stylesheet for every component defined so far, with htmx unless
- * left out, and bundles the effect-views runtime when the API has live
- * components, with the modules of those that run in the browser.
+ * Builds the stylesheet for every component defined so far, and bundles the
+ * effect-views runtime, with the modules of the live components in the API
+ * that run in the browser.
  */
 export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
   Effect.gen(function* () {
@@ -265,12 +242,10 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
     const included = registered()
     const files = new Map<string, File>()
     const stylesheets: Array<string> = []
-    const scripts: Array<string> = []
     const modules: Array<string> = []
     const modulePreloads: Array<string> = []
     const urls = new Map<string, string>()
     let live: ReadonlyMap<string, LiveModule> = new Map()
-    let runtime = false
 
     const add = (name: string, extension: string, contentType: string, body: Uint8Array): File => {
       const fileName = `${name}-${hash(body)}.${extension}`
@@ -286,20 +261,6 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       stylesheets.push(file.path)
     }
 
-    const htmx = options?.htmx
-    if (htmx === undefined) {
-      const file = add("htmx", "js", "text/javascript; charset=utf-8", yield* readHtmx)
-      scripts.push(file.path)
-    } else if (htmx !== false) {
-      scripts.push(htmx.url)
-    }
-
-    // Deferred scripts run in order, so extensions load after htmx
-    for (const name of options?.extensions ?? []) {
-      const file = add(`htmx-ext-${name}`, "js", "text/javascript; charset=utf-8", yield* readExtension(name))
-      scripts.push(file.path)
-    }
-
     for (const [name, path] of Object.entries(options?.files ?? {})) {
       const dot = name.lastIndexOf(".")
       const [base, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot + 1)] : [name, ""]
@@ -307,16 +268,11 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
       urls.set(name, add(base, extension, contentType, yield* readFileAt(name, path)).path)
     }
 
-    if (options?.api !== undefined) {
-      const bundled = yield* bundleLiveComponents(options.api, prefix)
-      if (bundled !== undefined) {
-        for (const file of bundled.files) files.set(file.path, file)
-        modules.push(bundled.module)
-        modulePreloads.push(...bundled.preloads)
-        live = bundled.live
-        runtime = true
-      }
-    }
+    const bundled = yield* bundleRuntime(options?.api, prefix)
+    for (const file of bundled.files) files.set(file.path, file)
+    modules.push(bundled.module)
+    modulePreloads.push(...bundled.preloads)
+    live = bundled.live
 
     if (options?.compress !== false) {
       const all = yield* Effect.forEach(files.values(), compressed, { concurrency: 8 })
@@ -325,15 +281,13 @@ export const make = (options?: Options): Effect.Effect<Manifest, AssetsError> =>
 
     return {
       prefix,
-      head: headTags({ stylesheets, scripts, modules, modulePreloads }, undefined),
+      head: headTags({ stylesheets, modules, modulePreloads }, undefined, {}),
       stylesheets,
-      scripts,
       modules,
       modulePreloads,
       urls,
       files,
       components: new Set(included.map((definition) => definition.tag)),
-      runtime,
       live
     }
   })
@@ -435,23 +389,27 @@ export const url = (name: string): string => {
   return path
 }
 
+export interface HeadProps extends Protocol.Config {}
+
 /**
- * The stylesheet, htmx, and the effect-views runtime when live components run
- * in the browser, for the page head, with the response's nonce on the scripts
- * when `Csp.layer` is in use. Requires the Assets service; see layer.
+ * The stylesheet and the effect-views runtime, for the page head, with the
+ * response's nonce on the scripts when `Csp.layer` is in use. Pass
+ * `errorTarget` to put error responses to the runtime's requests into the
+ * page, such as the fragments ErrorPage.layer renders. Requires the Assets
+ * service; see layer.
  *
  * ```tsx
  * <head>
- *   <Htmx.Config />
- *   <Assets.Head />
+ *   <Assets.Head errorTarget="#errors" />
  * </head>
  * ```
  */
-export const Head = (): Html.Html => {
+export const Head = (props?: HeadProps): Html.Html => {
   const manifest = current()
   if (manifest === undefined) {
     throw new Error("Assets.Head needs the Assets service; provide Assets.layer() to HttpRouter.serve")
   }
   const nonce = Csp.nonce()
-  return nonce === undefined ? manifest.head : headTags(manifest, nonce)
+  const config: Protocol.Config = props?.errorTarget === undefined ? {} : { errorTarget: props.errorTarget }
+  return nonce === undefined && Object.keys(config).length === 0 ? manifest.head : headTags(manifest, nonce, config)
 }

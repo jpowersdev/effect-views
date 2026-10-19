@@ -6,6 +6,8 @@ import * as HttpApiGroup from "effect/http-api/HttpApiGroup"
 
 import * as Html from "./Html.js"
 import * as HttpFormEndpoint from "./HttpFormEndpoint.js"
+import type { Swap } from "./internal/Protocol.js"
+import * as On from "./On.js"
 import * as Submission from "./Submission.js"
 
 type FieldName<Fields extends Schema.Struct.Fields> = Extract<keyof Fields, string>
@@ -25,11 +27,34 @@ type NativeAttributes<Reserved extends string> = Omit<Html.Attributes, Reserved 
   readonly children?: Html.Child
 }
 
-export interface RootProps extends NativeAttributes<"action" | "id" | "method"> {
+export interface RootProps extends NativeAttributes<"action" | "id" | "method" | "target"> {
   readonly action?: never
   readonly id?: never
   readonly method?: never
+  /**
+   * A selector for the element the response goes into: the effect-views
+   * runtime submits the form and puts the response there, rather than loading
+   * a page. Without JavaScript the form submits as usual. See target.
+   */
+  readonly target?: string
+  /** How the response goes into the target. Defaults to "outer", replacing it. */
+  readonly swap?: Swap
 }
+
+/**
+ * Attributes that make the effect-views runtime submit a form and put the
+ * response into the element the selector finds, rather than loading a page,
+ * for a form written by hand; Form.Root takes the same as props. The server
+ * answers the runtime with just the fragment, as Page.layout does, and a 422
+ * with the form's errors goes into the target too. Without JavaScript the form
+ * submits as usual.
+ *
+ * ```tsx
+ * <form method="post" action={`/orders/${id}/cancel`} {...Form.target(`#order-${id}`)}>
+ * ```
+ */
+export const target = (selector: string, swap: Swap = "outer"): On.Binding<"submit"> =>
+  On.submit({ _tag: "Request", target: selector, swap })
 
 export interface LabelProps<Name extends string> extends NativeAttributes<"for" | "htmlFor" | "name"> {
   readonly name: Name
@@ -170,7 +195,8 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
   /**
    * Every message, the form's own first and then each field's, linking to its
    * control. Renders nothing for a valid form. It has role="alert" and autofocus,
-   * so the browser moves focus to it on a full page load and htmx after a swap.
+   * so the browser moves focus to it on a full page load, and the runtime when
+   * it puts the form into the page.
    */
   readonly Summary: (props: SummaryProps) => Html.Html
   /** A field's messages, or the form's own messages without a name. */
@@ -191,9 +217,9 @@ export interface Form<Fields extends Schema.Struct.Fields, Action extends string
 export interface WithOptions {
   /**
    * Autofocuses the first control with errors, in schema order: the browser
-   * focuses it after a full page load, and htmx after a swap. Screen readers
-   * then read its label and error. For forms without a Summary, which takes
-   * focus itself.
+   * focuses it after a full page load, and the runtime when it puts the form
+   * into the page. Screen readers then read its label and error. For forms
+   * without a Summary, which takes focus itself.
    */
   readonly autofocusError?: boolean
 }
@@ -270,10 +296,11 @@ export const make = <
     }
 
     const Root = (props: RootProps): Html.Html => {
-      const { "aria-describedby": describedBy, children, ...attributes } = props
+      const { "aria-describedby": describedBy, children, swap, target: selector, ...attributes } = props
       const formErrors = state?.formErrors ?? []
       return Html.element("form", {
         ...attributes,
+        ...(selector === undefined ? {} : target(selector, swap)),
         "aria-describedby": formErrors.length === 0 ? describedBy : joinIds(describedBy, formErrorId),
         id,
         method: "post",

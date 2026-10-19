@@ -8,14 +8,14 @@ import * as Vitest from "vitest"
 import * as App from "../examples/signup/App.js"
 import * as Assets from "../src/Assets.js"
 import * as Csrf from "../src/Csrf.js"
-import * as Htmx from "../src/Htmx.js"
+import * as Page from "../src/Page.js"
 
 const makeApp = () => HttpRouter.toWebHandler(
   Layer.mergeAll(
     App.routes.pipe(
       Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeHttpPlatform.layer, Etag.layer, Assets.layer()))
     ),
-    Htmx.varyLayer,
+    Page.varyLayer,
     Csrf.layer()
   ),
   { disableLogger: true }
@@ -102,7 +102,7 @@ Vitest.describe("sign-up example", () => {
 
       const young = await handler(new Request("http://localhost/sign-up", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ ...valid, age: "14" })
       }))
       Vitest.expect(young.status).toBe(422)
@@ -179,13 +179,14 @@ Vitest.describe("sign-up example", () => {
       Vitest.expect(welcomeBody).toContain("Welcome, Grace")
       Vitest.expect(welcomeBody).not.toContain("newsletter is on its way")
 
-      const htmx = await handler(new Request("http://localhost/sign-up", {
+      // The runtime is told to load the account's page, rather than put it into the form's target
+      const fromRuntime = await handler(new Request("http://localhost/sign-up", {
         method: "POST",
-        headers: { "HX-Request": "true" },
+        headers: { "effect-views-request": "true" },
         body: new URLSearchParams({ ...valid, email: "linus@example.com" })
       }))
-      Vitest.expect(htmx.status).toBe(204)
-      Vitest.expect(htmx.headers.get("hx-redirect")).toBe("/accounts/3")
+      Vitest.expect(fromRuntime.status).toBe(204)
+      Vitest.expect(fromRuntime.headers.get("effect-views-location")).toBe("/accounts/3")
     } finally {
       await dispose()
     }

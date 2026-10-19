@@ -218,24 +218,27 @@ const moduleEndpointPath = (tag: string) => `${prefix}/${tag}/module.js`
 /**
  * Fails clearly when a page could not run the component, rather than
  * rendering controls that do nothing: while handling a request, the runtime
- * must come from Assets.layer. Rendering outside a request, such as in a
- * test, is left alone.
+ * must come from Assets.layer, which bundles a browser component's module
+ * only when given the API. Rendering outside a request, such as in a test, is
+ * left alone.
  */
-const requireRuntime = (tag: string): void => {
+const requireRuntime = (tag: string, runs: Runs): void => {
   const fiber = Fiber.getCurrent()
   if (fiber === undefined) return
   const manifest = Context.getOrUndefined(fiber.context, Manifest.Assets)
-  if (manifest?.runtime === true) return
-  if (manifest !== undefined) {
-    throw new Error(
-      `<${tag}> needs the effect-views runtime; give Assets.layer the API that has the component's endpoints: ` +
-        `Assets.layer({ api })`
-    )
+  if (manifest === undefined) {
+    if (Context.getOrUndefined(fiber.context, HttpServerRequest.HttpServerRequest) !== undefined) {
+      throw new Error(
+        `<${tag}> needs the effect-views runtime; provide Assets.layer() to HttpRouter.serve, ` +
+          `and render <Assets.Head /> in the page`
+      )
+    }
+    return
   }
-  if (Context.getOrUndefined(fiber.context, HttpServerRequest.HttpServerRequest) !== undefined) {
+  if (runs === "browser" && !manifest.live.has(tag)) {
     throw new Error(
-      `<${tag}> needs the effect-views runtime; provide Assets.layer({ api }) to HttpRouter.serve, ` +
-        `and render <Assets.Head /> in the page`
+      `<${tag}> runs in the browser, but Assets.layer did not bundle it; give Assets.layer the API that has ` +
+        `the component's endpoints: Assets.layer({ api })`
     )
   }
 }
@@ -277,7 +280,7 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
     const Element = Component.make<StateOf<C>>(component.tag, {
       ...style,
       attributes: (state) => {
-        requireRuntime(component.tag)
+        requireRuntime(component.tag, "browser")
         return {
           "data-live": "browser",
           "data-live-module": Manifest.current()?.live.get(component.tag)?.module ?? moduleEndpointPath(component.tag),
@@ -327,7 +330,7 @@ export const view = <C extends Any>(component: C, options: ViewOptions<C>): View
   const Element = Component.make<StateOf<C>>(component.tag, {
     ...style,
     attributes: () => {
-      requireRuntime(component.tag)
+      requireRuntime(component.tag, "server")
       return { "data-live": "server" }
     },
     render: contents
